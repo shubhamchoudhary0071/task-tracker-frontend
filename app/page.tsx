@@ -1,626 +1,508 @@
 'use client'
 
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { format, parseISO, subDays } from 'date-fns'
+import { toast } from 'sonner'
+import { CalendarPlus, ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react'
 
-import {
-  format,
-  parseISO,
-} from 'date-fns'
-
-import {
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Plus,
-} from 'lucide-react'
-
-import Sidebar from '@/components/Sidebar'
-import TaskCard from '@/components/TaskCard'
-import StatsOverview from '@/components/StatsOverview'
-import AddTaskModal from '@/components/AddTaskModal'
+import AppShell from '@/components/app-shell'
 import DailyChart from '@/components/charts/DailyChart'
-
+import TaskCard from '@/components/TaskCard'
+import { CATEGORIES } from '@/lib/sampleData'
+import { apiMessage } from '@/lib/api-error'
+import type { DisplayStatus, SortKey, StatusFilter, Task } from '@/lib/types'
+import {
+  daySummary,
+  displayStatus,
+  fillDailyStats,
+  logFor,
+  sortTasks,
+  taskExistedOn,
+  todayKey,
+} from '@/lib/tasks'
+import { cn, getStatusLabel } from '@/lib/utils'
+import { usePreferences } from '@/store/preferences'
 import { useTaskStore } from '@/store/taskStore'
 
-import { cn } from '@/lib/utils'
+const FILTERS: Array<{ key: StatusFilter; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'pending', label: 'Open' },
+  { key: 'partial', label: 'Partial' },
+  { key: 'done', label: 'Done' },
+  { key: 'not_done', label: 'Missed' },
+]
 
-type TaskStatus =
-  | 'done'
-  | 'partial'
-  | 'not_done'
-
-type DisplayStatus =
-  | TaskStatus
-  | 'pending'
-
-type FilterKey =
-  | 'all'
-  | DisplayStatus
-
-type Task = {
-  id: string
-  title: string
-  description?: string
-  target: number
-  unit: string
-  category: string
-  color: string
-  isActive: boolean
-  createdAt: string
-}
-
-type TaskLog = {
-  id?: string
-  taskId: string
-  status: TaskStatus
-  completed?: number
-  notes?: string
-}
-
-type TodayStats = {
-  total: number
-  done: number
-  partial: number
-  notDone: number
-  pending: number
-}
-
-type FilterOption = {
-  key: FilterKey
-  label: string
-  activeClassName: string
-  dotClassName: string
-}
-
-const FILTERS: FilterOption[] =
-  [
-    {
-      key: 'all',
-      label: 'All',
-
-      activeClassName:
-        'bg-zinc-500/15 border-zinc-500/25 text-zinc-300',
-
-      dotClassName:
-        'bg-zinc-500',
-    },
-
-    {
-      key: 'done',
-      label: 'Done',
-
-      activeClassName:
-        'bg-emerald-500/15 border-emerald-500/25 text-emerald-400',
-
-      dotClassName:
-        'bg-emerald-500',
-    },
-
-    {
-      key: 'partial',
-      label: 'Partial',
-
-      activeClassName:
-        'bg-amber-500/15 border-amber-500/25 text-amber-400',
-
-      dotClassName:
-        'bg-amber-500',
-    },
-
-    {
-      key: 'not_done',
-      label: 'Missed',
-
-      activeClassName:
-        'bg-rose-500/15 border-rose-500/25 text-rose-400',
-
-      dotClassName:
-        'bg-rose-500',
-    },
-
-    {
-      key: 'pending',
-      label: 'Pending',
-
-      activeClassName:
-        'bg-zinc-500/15 border-zinc-500/25 text-zinc-300',
-
-      dotClassName:
-        'bg-zinc-500',
-    },
-  ]
+const SORTS: Array<{ key: SortKey; label: string }> = [
+  { key: 'attention', label: 'Needs attention' },
+  { key: 'title', label: 'Name' },
+  { key: 'category', label: 'Category' },
+  { key: 'newest', label: 'Newest' },
+  { key: 'progress', label: 'Most complete' },
+]
 
 export default function TodayPage() {
-  // =========================
-  // STORE
-  // =========================
+  const tasks = useTaskStore((state) => state.tasks)
+  const logs = useTaskStore((state) => state.logs)
+  const loadedDates = useTaskStore((state) => state.loadedDates)
+  const tasksLoading = useTaskStore((state) => state.tasksLoading)
+  const tasksError = useTaskStore((state) => state.tasksError)
+  const logsError = useTaskStore((state) => state.logsError)
+  const report = useTaskStore((state) => state.report)
+  const reportRange = useTaskStore((state) => state.reportRange)
+  const reportLoading = useTaskStore((state) => state.reportLoading)
+  const reportError = useTaskStore((state) => state.reportError)
+  const selectedDate = useTaskStore((state) => state.selectedDate)
+  const setSelectedDate = useTaskStore((state) => state.setSelectedDate)
+  const fetchTasks = useTaskStore((state) => state.fetchTasks)
+  const fetchLogsForDate = useTaskStore((state) => state.fetchLogsForDate)
+  const fetchReport = useTaskStore((state) => state.fetchReport)
+  const createTask = useTaskStore((state) => state.createTask)
+  const setDialog = usePreferences((state) => state.setDialog)
+  const query = usePreferences((state) => state.query)
+  const setQuery = usePreferences((state) => state.setQuery)
+  const status = usePreferences((state) => state.status)
+  const setStatus = usePreferences((state) => state.setStatus)
+  const category = usePreferences((state) => state.category)
+  const setCategory = usePreferences((state) => state.setCategory)
+  const sort = usePreferences((state) => state.sort)
+  const setSort = usePreferences((state) => state.setSort)
+  const showArchived = usePreferences((state) => state.showArchived)
+  const setShowArchived = usePreferences((state) => state.setShowArchived)
 
-  const {
-    tasks,
-    loading,
-
-    selectedDate,
-
-    setSelectedDate,
-
-    getLogsForDate,
-    getTodayStats,
-
-    fetchTasks,
-    fetchLogsByDate,
-  } = useTaskStore()
-
-  // =========================
-  // STATE
-  // =========================
-
-  const [
-    showAddModal,
-    setShowAddModal,
-  ] = useState<boolean>(false)
-
-  const [filter, setFilter] =
-    useState<FilterKey>(
-      'all'
-    )
-
-  // =========================
-  // FETCH TASKS
-  // =========================
+  const today = todayKey()
+  const chartStart = format(subDays(parseISO(today), 13), 'yyyy-MM-dd')
+  const logsReady = loadedDates.includes(selectedDate)
+  const isToday = selectedDate === today
 
   useEffect(() => {
-    fetchTasks()
+    void fetchTasks()
   }, [fetchTasks])
 
-  // =========================
-  // FETCH LOGS
-  // =========================
+  useEffect(() => {
+    void fetchLogsForDate(selectedDate)
+  }, [fetchLogsForDate, selectedDate])
 
   useEffect(() => {
-    fetchLogsByDate(
-      selectedDate
-    )
-  }, [
-    selectedDate,
-    fetchLogsByDate,
-  ])
+    void fetchReport(chartStart, today)
+  }, [chartStart, fetchReport, today])
 
-  // =========================
-  // TYPES
-  // =========================
-
-  const taskList =
-    tasks as Task[]
-
-  const logs =
-    getLogsForDate(
-      selectedDate
-    ) as TaskLog[]
-
-  const stats =
-    getTodayStats(
-      selectedDate
-    ) as TodayStats
-
-  // =========================
-  // ACTIVE TASKS
-  // =========================
-
-  const activeTasks =
-    useMemo(() => {
-      return taskList.filter(
-        (task) =>
-          task.isActive
-      )
-    }, [taskList])
-
-  // =========================
-  // DATE
-  // =========================
-
-  const todayDate = format(
-    new Date(),
-    'yyyy-MM-dd'
-  )
-
-  const isCurrentDay =
-    selectedDate ===
-    todayDate
-
-  function shiftDay(
-    delta: number
-  ): void {
-    const nextDate =
-      parseISO(
-        selectedDate
-      )
-
-    nextDate.setDate(
-      nextDate.getDate() +
-        delta
-    )
-
-    if (
-      nextDate >
-      new Date()
-    ) {
-      return
-    }
-
-    setSelectedDate(
-      format(
-        nextDate,
-        'yyyy-MM-dd'
-      )
-    )
-  }
-
-  // =========================
-  // FILTER TASKS
-  // =========================
-
-  const filteredTasks =
-    useMemo(() => {
-      if (
-        filter === 'all'
-      ) {
-        return activeTasks
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key === '/') {
+        event.preventDefault()
+        document.getElementById('task-search')?.focus()
       }
+      if (event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        document.getElementById('quick-add-title')?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
-      return activeTasks.filter(
-        (task) => {
-          const log =
-            logs.find(
-              (
-                item
-              ) =>
-                item.taskId ===
-                task.id
-            )
+  useEffect(() => {
+    if (!logsReady || !window.location.hash) return
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'center' })
+  }, [logsReady])
 
-          const status: DisplayStatus =
-            log?.status ??
-            'pending'
+  const summary = daySummary(tasks, logs, selectedDate)
+  const visible = useMemo(() => {
+    const active = tasks.filter((task) => task.isActive && taskExistedOn(task, selectedDate))
+    const searched = active.filter((task) => matchesQuery(task, query))
+    const categorized =
+      category === 'all' ? searched : searched.filter((task) => task.category === category)
+    return categorized
+  }, [category, query, selectedDate, tasks])
 
-          return (
-            status ===
-            filter
-          )
-        }
-      )
-    }, [
-      activeTasks,
-      filter,
-      logs,
-    ])
+  const filtered = useMemo(() => {
+    const matched =
+      status === 'all'
+        ? visible
+        : visible.filter((task) => displayStatus(logFor(logs, task.id, selectedDate)) === status)
+    return sortTasks(matched, logs, selectedDate, sort)
+  }, [logs, selectedDate, sort, status, visible])
 
-  // =========================
-  // FILTER COUNTS
-  // =========================
+  const archived = useMemo(() => {
+    if (!showArchived) return []
+    return tasks.filter((task) => !task.isActive && matchesQuery(task, query))
+  }, [query, showArchived, tasks])
 
-  const filterCounts: Record<
-    FilterKey,
-    number
-  > = useMemo(
-    () => ({
-      all:
-        activeTasks.length,
+  const counts = useMemo(() => {
+    const tally: Record<StatusFilter, number> = {
+      all: visible.length,
+      done: 0,
+      partial: 0,
+      not_done: 0,
+      pending: 0,
+    }
+    for (const task of visible) {
+      const key = displayStatus(logFor(logs, task.id, selectedDate))
+      tally[key] += 1
+    }
+    return tally
+  }, [logs, selectedDate, visible])
 
-      done:
-        stats.done,
+  const chartDays =
+    report && reportRange?.start === chartStart && reportRange.end === today
+      ? fillDailyStats(report.dailyStats, chartStart, today)
+      : []
 
-      partial:
-        stats.partial,
-
-      not_done:
-        stats.notDone,
-
-      pending:
-        stats.pending,
-    }),
-
-    [
-      activeTasks.length,
-
-      stats.done,
-      stats.partial,
-      stats.notDone,
-      stats.pending,
-    ]
-  )
-
-  // =========================
-  // DISPLAY DATE
-  // =========================
-
-  const displayDate =
-    isCurrentDay
-      ? 'Today'
-      : format(
-          parseISO(
-            selectedDate
-          ),
-          'EEEE, MMMM d'
-        )
-
-  // =========================
-  // LOADING
-  // =========================
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0b] text-sm text-zinc-400">
-        Loading tasks...
-      </div>
+  function moveDay(delta: number) {
+    const next = format(
+      new Date(parseISO(selectedDate).getFullYear(), parseISO(selectedDate).getMonth(), parseISO(selectedDate).getDate() + delta),
+      'yyyy-MM-dd',
     )
+    if (next > today) return
+    setSelectedDate(next)
   }
+
+  const showSkeleton = tasksLoading && tasks.length === 0
 
   return (
-    <div className="min-h-screen bg-[#0a0a0b]">
-      <Sidebar />
-
-      <main className="w-full px-4 pb-24 pt-20 sm:p-6 lg:ml-[220px] lg:max-w-[calc(100%-220px)] lg:pb-6 lg:pt-6">
-        {/* Header */}
-
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-3">
-              <h1 className="truncate font-syne text-2xl font-bold text-zinc-100 sm:text-3xl">
-                {
-                  displayDate
-                }
-              </h1>
-
-              {isCurrentDay && (
-                <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/20 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-amber-400">
-                  Live
-                </span>
-              )}
-            </div>
-
-            <p className="mt-0.5 truncate font-body text-sm text-zinc-600">
-              {format(
-                parseISO(
-                  selectedDate
-                ),
-                'MMMM d, yyyy'
-              )}{' '}
-              ·{' '}
-              {
-                activeTasks.length
-              }{' '}
-              tasks active
-            </p>
-          </div>
-
-          {/* Actions */}
-
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            {/* Date controls */}
-
-            <div className="flex w-full items-center overflow-hidden rounded-lg border border-zinc-800 bg-[#111113] sm:w-auto">
-              <button
-                type="button"
-                onClick={() =>
-                  shiftDay(
-                    -1
-                  )
-                }
-                className="flex flex-1 justify-center p-2 transition-colors hover:bg-zinc-800 sm:flex-none"
-              >
-                <ChevronLeft
-                  size={14}
-                  className="text-zinc-400"
-                />
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedDate(
-                    todayDate
-                  )
-                }
-                className={cn(
-                  'flex-1 px-3 py-1.5 font-mono text-xs transition-colors sm:flex-none',
-
-                  isCurrentDay
-                    ? 'text-amber-400'
-                    : 'text-zinc-500 hover:text-zinc-300'
-                )}
-              >
-                Today
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  shiftDay(
-                    1
-                  )
-                }
-                disabled={
-                  isCurrentDay
-                }
-                className="flex flex-1 justify-center p-2 transition-colors hover:bg-zinc-800 disabled:opacity-30 sm:flex-none"
-              >
-                <ChevronRight
-                  size={14}
-                  className="text-zinc-400"
-                />
-              </button>
-            </div>
-
-            {/* Add button */}
-
+    <AppShell>
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+            {isToday ? 'Live day' : 'Past day'}
+          </p>
+          <h1 className="mt-1 truncate text-3xl font-semibold tracking-tight">
+            {isToday ? 'Today' : format(parseISO(selectedDate), 'EEEE')}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {format(parseISO(selectedDate), 'MMMM d, yyyy')} · {summary.done} of {summary.total} done
+            {summary.pending > 0 ? ` · ${summary.pending} still open` : ''}
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex items-center rounded-xl border border-border bg-card">
+            <button type="button" aria-label="Previous day" onClick={() => moveDay(-1)} className="px-3 py-2">
+              <ChevronLeft size={16} />
+            </button>
             <button
               type="button"
-              onClick={() =>
-                setShowAddModal(
-                  true
-                )
-              }
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2 font-mono text-sm font-semibold text-black transition-colors hover:bg-amber-400 sm:w-auto"
+              onClick={() => setSelectedDate(today)}
+              className={cn('px-2 py-2 text-sm', isToday ? 'text-primary' : 'text-muted-foreground')}
             >
-              <Plus
-                size={14}
-              />
-
-              Add Task
+              Today
+            </button>
+            <button
+              type="button"
+              aria-label="Next day"
+              disabled={isToday}
+              onClick={() => moveDay(1)}
+              className="px-3 py-2 disabled:opacity-40"
+            >
+              <ChevronRight size={16} />
             </button>
           </div>
+          <label className="sr-only" htmlFor="jump-date">
+            Jump to date
+          </label>
+          <input
+            id="jump-date"
+            type="date"
+            max={today}
+            value={selectedDate}
+            onChange={(event) => {
+              if (event.target.value && event.target.value <= today) setSelectedDate(event.target.value)
+            }}
+            className="w-full max-w-full rounded-xl border border-border bg-card px-3 py-2 text-sm sm:w-auto"
+          />
+          <button
+            type="button"
+            onClick={() => setDialog({ type: 'create' })}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+          >
+            <Plus size={15} />
+            New task
+          </button>
         </div>
+      </div>
 
-        {/* Stats */}
+      {tasksError ? (
+        <Banner message={tasksError} onRetry={() => void fetchTasks()} />
+      ) : null}
+      {logsError ? (
+        <Banner message={logsError} onRetry={() => void fetchLogsForDate(selectedDate)} />
+      ) : null}
 
-        <StatsOverview
-          stats={stats}
-        />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <Stat label="Active" value={summary.total} onClick={() => setStatus('all')} />
+        <Stat label="Done" value={summary.done} onClick={() => setStatus('done')} />
+        <Stat label="Partial" value={summary.partial} onClick={() => setStatus('partial')} />
+        <Stat label="Missed" value={summary.notDone} onClick={() => setStatus('not_done')} />
+        <Stat label="Open" value={summary.pending} onClick={() => setStatus('pending')} />
+      </div>
 
-        {/* Filters */}
+      <QuickAdd
+        onCreate={async (title, target) => {
+          const personal = CATEGORIES.find((item) => item.value === 'Personal')
+          await createTask({
+            title,
+            target,
+            unit: 'tasks',
+            category: 'Personal',
+            color: personal?.color ?? '#ec4899',
+            repeatType: 'daily',
+          })
+          toast.success('Task added')
+        }}
+      />
 
-        <div className="-mx-4 mb-4 mt-5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
-          <div className="flex min-w-max items-center gap-2">
-            {FILTERS.map(
-              ({
-                key,
-                label,
-                activeClassName,
-                dotClassName,
-              }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() =>
-                    setFilter(
-                      key
-                    )
-                  }
-                  className={cn(
-                    'flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-body text-xs transition-all',
-
-                    filter ===
-                      key
-                      ? activeClassName
-                      : 'border-zinc-800 bg-transparent text-zinc-600 hover:border-zinc-700 hover:text-zinc-400'
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'inline-block h-1.5 w-1.5 rounded-full',
-                      dotClassName
-                    )}
-                  />
-
-                  {label}
-
-                  <span
-                    className={cn(
-                      'rounded-full px-1 py-0.5 font-mono text-[10px]',
-
-                      filter ===
-                        key
-                        ? 'bg-white/10'
-                        : 'bg-zinc-800'
-                    )}
-                  >
-                    {
-                      filterCounts[
-                        key
-                      ]
-                    }
-                  </span>
-                </button>
-              )
-            )}
+      <div className="mt-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative min-w-0 flex-1">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <label htmlFor="task-search" className="sr-only">
+              Search tasks
+            </label>
+            <input
+              id="task-search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search tasks"
+              className="w-full rounded-xl border border-border bg-card py-2.5 pl-9 pr-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+            />
           </div>
+          <label className="sr-only" htmlFor="task-sort">
+            Sort
+          </label>
+          <select
+            id="task-sort"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as SortKey)}
+            className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
+          >
+            {SORTS.map((item) => (
+              <option key={item.key} value={item.key}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <label className="sr-only" htmlFor="task-category">
+            Category
+          </label>
+          <select
+            id="task-category"
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+            className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
+          >
+            <option value="all">All categories</option>
+            {CATEGORIES.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* Tasks */}
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {FILTERS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              aria-pressed={status === item.key}
+              onClick={() => setStatus(item.key)}
+              className={cn(
+                'shrink-0 rounded-full border px-3 py-1.5 text-xs',
+                status === item.key
+                  ? 'border-ring bg-accent text-accent-foreground'
+                  : 'border-border text-muted-foreground',
+              )}
+            >
+              {item.label} {counts[item.key]}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {filteredTasks.length ===
-          0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-900/80 bg-zinc-950/30 px-4 py-16 text-center xl:col-span-2">
-              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-800/50">
-                <Calendar
-                  size={20}
-                  className="text-zinc-600"
-                />
-              </div>
+      <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {showSkeleton ? (
+          Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-card" />
+          ))
+        ) : filtered.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border px-4 py-14 text-center xl:col-span-2">
+            <CalendarPlus className="mx-auto text-muted-foreground" size={22} />
+            <p className="mt-3 text-sm font-medium">
+              {tasks.filter((task) => task.isActive).length === 0
+                ? 'No active tasks yet'
+                : `No ${status === 'all' ? '' : `${getStatusLabel(status as DisplayStatus).toLowerCase()} `}tasks match`}
+            </p>
+            <button
+              type="button"
+              onClick={() => setDialog({ type: 'create' })}
+              className="mt-3 text-sm font-medium text-primary"
+            >
+              Create a task
+            </button>
+          </div>
+        ) : (
+          filtered.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              date={selectedDate}
+              log={logFor(logs, task.id, selectedDate)}
+              logsKnown={logsReady}
+            />
+          ))
+        )}
+      </div>
 
-              <div className="font-body text-sm text-zinc-500">
-                No tasks in
-                this filter
-              </div>
+      <div className="mt-4 flex items-center justify-between">
+        <button
+          type="button"
+          aria-pressed={showArchived}
+          onClick={() => setShowArchived(!showArchived)}
+          className="text-sm text-muted-foreground hover:text-foreground"
+        >
+          {showArchived ? 'Hide archived' : 'Show archived'}
+        </button>
+        <p className="text-xs text-muted-foreground">
+          <kbd className="font-mono">/</kbd> search · <kbd className="font-mono">N</kbd> quick add
+        </p>
+      </div>
 
-              <button
-                type="button"
-                onClick={() =>
-                  setShowAddModal(
-                    true
-                  )
-                }
-                className="mt-3 font-mono text-xs text-amber-500 hover:text-amber-400"
-              >
-                + Add your
-                first task
-              </button>
-            </div>
+      {showArchived ? (
+        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+          {archived.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No archived tasks.</p>
           ) : (
-            filteredTasks.map(
-              (task) => {
-                const log =
-                  logs.find(
-                    (
-                      item
-                    ) =>
-                      item.taskId ===
-                      task.id
-                  )
-
-                return (
-                  <TaskCard
-                    key={
-                      task.id
-                    }
-                    task={
-                      task
-                    }
-                    log={
-                      log
-                    }
-                    date={
-                      selectedDate
-                    }
-                  />
-                )
-              }
-            )
+            archived.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                date={selectedDate}
+                log={logFor(logs, task.id, selectedDate)}
+                logsKnown={logsReady}
+              />
+            ))
           )}
         </div>
+      ) : null}
 
-        {/* Chart */}
+      <div className="mt-6">
+        {reportError ? (
+          <Banner message={reportError} onRetry={() => void fetchReport(chartStart, today)} />
+        ) : null}
+        {reportLoading && chartDays.length === 0 ? (
+          <div className="h-64 animate-pulse rounded-2xl border border-border bg-card" />
+        ) : (
+          <DailyChart days={chartDays} />
+        )}
+      </div>
+    </AppShell>
+  )
+}
 
-        <DailyChart />
-      </main>
+function matchesQuery(task: Task, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return `${task.title} ${task.description} ${task.category} ${task.unit}`.toLowerCase().includes(needle)
+}
 
-      {/* Modal */}
+function Stat({ label, value, onClick }: { label: string; value: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-2xl border border-border bg-card px-3 py-3 text-left hover:bg-accent"
+    >
+      <div className="text-2xl font-semibold tabular-nums">{value}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+    </button>
+  )
+}
 
-      <AddTaskModal
-        open={
-          showAddModal
-        }
-        onClose={() =>
-          setShowAddModal(
-            false
-          )
-        }
-      />
+function Banner({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div role="alert" className="mb-4 flex flex-col gap-2 rounded-2xl border border-rose-600/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-800 sm:flex-row sm:items-center sm:justify-between dark:text-rose-100">
+      <p>{message}</p>
+      <button type="button" onClick={onRetry} className="font-medium underline">
+        Retry
+      </button>
     </div>
+  )
+}
+
+function QuickAdd({ onCreate }: { onCreate: (title: string, target: number) => Promise<void> }) {
+  const [title, setTitle] = useState('')
+  const [target, setTarget] = useState('1')
+  const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+
+  return (
+    <form
+      className="mt-4 rounded-2xl border border-border bg-card p-3"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const name = title.trim()
+        const amount = Number(target)
+        if (!name) {
+          setError('Name the task first.')
+          return
+        }
+        if (!Number.isFinite(amount) || amount <= 0) {
+          setError('Target must be greater than 0.')
+          return
+        }
+        setError(null)
+        setPending(true)
+        void onCreate(name, amount)
+          .then(() => {
+            setTitle('')
+            setTarget('1')
+          })
+          .catch((caught: unknown) => {
+            toast.error(apiMessage(caught, 'Could not add that task'))
+          })
+          .finally(() => setPending(false))
+      }}
+    >
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="min-w-0 flex-1">
+          <label htmlFor="quick-add-title" className="sr-only">
+            Quick add task name
+          </label>
+          <input
+            id="quick-add-title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Quick add a daily task"
+            maxLength={120}
+            className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+          />
+        </div>
+        <label htmlFor="quick-add-target" className="sr-only">
+          Daily target
+        </label>
+        <input
+          id="quick-add-target"
+          type="number"
+          min={1}
+          value={target}
+          onChange={(event) => setTarget(event.target.value)}
+          aria-label="Daily target"
+          className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm sm:w-24"
+        />
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-xl bg-secondary px-4 py-2.5 text-sm font-semibold text-secondary-foreground disabled:opacity-60"
+        >
+          {pending ? 'Adding…' : 'Add'}
+        </button>
+      </div>
+      {error ? <p className="mt-2 text-xs text-rose-700 dark:text-rose-300">{error}</p> : (
+        <p className="mt-2 text-xs text-muted-foreground">Adds a personal task with a daily target. Use New task for category and notes.</p>
+      )}
+    </form>
   )
 }

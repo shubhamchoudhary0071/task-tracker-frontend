@@ -2,678 +2,305 @@
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { format } from 'date-fns'
 
+import { apiMessage } from '@/lib/api-error'
+import type { DailyLog, ReportData, Task, TaskInput, UpsertLogInput } from '@/lib/types'
+import {
+  deriveStatus,
+  eachDate,
+  normalizeLog,
+  normalizeReport,
+  normalizeTask,
+  todayKey,
+} from '@/lib/tasks'
 import apiClient from '@/utils/apiClient'
-
-type TaskStatus =
-  | 'done'
-  | 'partial'
-  | 'not_done'
-
-type Task = {
-  _id?: string
-  id: string
-  title: string
-  description?: string
-  target: number
-  unit: string
-  category: string
-  color: string
-  repeatType?: string
-  isActive: boolean
-  createdAt: string
-}
-
-type DailyLog = {
-  _id?: string
-  id?: string
-  taskId: string
-  date: string
-  completed: number
-  status: TaskStatus
-  notes?: string
-}
-
-type ReportData = unknown
-
-type TodayStats = {
-  total: number
-  done: number
-  partial: number
-  notDone: number
-  pending: number
-}
-
-type CreateTaskData = {
-  title: string
-  description?: string
-  target: number
-  unit: string
-  category: string
-  color: string
-  repeatType?: string
-}
-
-type UpdateTaskData = Partial<CreateTaskData> & {
-  isActive?: boolean
-}
-
-type UpsertLogData = {
-  completed: number
-  notes?: string
-}
 
 type TaskStore = {
   tasks: Task[]
-  dailyLogs: DailyLog[]
-  reportData: ReportData | null
+  logs: DailyLog[]
+  loadedDates: string[]
+  tasksLoading: boolean
+  tasksError: string | null
+  logsError: string | null
+  report: ReportData | null
+  reportRange: { start: string; end: string } | null
+  reportLoading: boolean
+  reportError: string | null
   selectedDate: string
-  loading: boolean
-  error: string | null
-
   setSelectedDate: (date: string) => void
-
-  fetchTodaySummary: () => Promise<void>
   fetchTasks: () => Promise<void>
-
-  createTask: (
-    taskData: CreateTaskData
-  ) => Promise<Task>
-
-  updateTask: (
-    id: string,
-    updates: UpdateTaskData
-  ) => Promise<void>
-
-  deleteTask: (
-    id: string
-  ) => Promise<void>
-
-  fetchLogsByDate: (
-    date: string
-  ) => Promise<void>
-
-  fetchLogsInRange: (
-    start: string,
-    end: string
-  ) => Promise<DailyLog[] | undefined>
-
-  fetchReport: (
-    start: string,
-    end: string
-  ) => Promise<ReportData | undefined>
-
-  upsertLog: (
-    taskId: string,
-    date: string,
-    logData: UpsertLogData
-  ) => Promise<DailyLog>
-
-  deleteLog: (
-    id: string
-  ) => Promise<void>
-
-  getLogsForDate: (
-    date: string
-  ) => DailyLog[]
-
-  getLogsForDateRange: (
-    startDate: string,
-    endDate: string
-  ) => DailyLog[]
-
-  getTaskById: (
-    id: string
-  ) => Task | undefined
-
-  getTodayStats: (
-    date?: string
-  ) => TodayStats
+  fetchLogsForDate: (date: string) => Promise<void>
+  fetchLogsInRange: (start: string, end: string) => Promise<void>
+  fetchReport: (start: string, end: string) => Promise<void>
+  createTask: (input: TaskInput) => Promise<Task>
+  updateTask: (id: string, updates: Partial<TaskInput>) => Promise<void>
+  deleteTask: (id: string) => Promise<void>
+  upsertLog: (taskId: string, date: string, input: UpsertLogInput, target: number) => Promise<void>
+  deleteLog: (id: string) => Promise<void>
 }
 
-const normalizeTask = (
-  task: Task & { _id?: string }
-): Task => ({
-  ...task,
-  id: String(task._id || task.id),
-})
+const dateEpoch = new Map<string, number>()
+const logRevision = new Map<string, number>()
+let epochSeq = 0
+let reportEpoch = 0
 
-type RawLog = Omit<DailyLog, 'taskId'> & {
-  _id?: string
-  taskId:
-    | string
-    | {
-        _id: string
-      }
+function logKey(taskId: string, date: string): string {
+  return `${taskId}|${date}`
 }
 
+function claimDates(dates: string[]): number {
+  const epoch = ++epochSeq
+  for (const date of dates) dateEpoch.set(date, epoch)
+  return epoch
+}
 
+function datesStillCurrent(dates: string[], epoch: number): boolean {
+  return dates.every((date) => dateEpoch.get(date) === epoch)
+}
 
-const normalizeLog = (
-  log: RawLog
-): DailyLog => ({
-  ...log,
+function snapshotRevisions(): Map<string, number> {
+  return new Map(logRevision)
+}
 
-  id: log._id || log.id,
+function bumpRevision(taskId: string, date: string): void {
+  const key = logKey(taskId, date)
+  logRevision.set(key, (logRevision.get(key) ?? 0) + 1)
+}
 
-  taskId:
-    typeof log.taskId === 'object'
-      ? log.taskId._id
-      : log.taskId,
-})
+function mergeLogs(
+  existing: DailyLog[],
+  incoming: DailyLog[],
+  dates: string[],
+  snapshot: Map<string, number>,
+): DailyLog[] {
+  const dateSet = new Set(dates)
+  const edited = (log: DailyLog) =>
+    (logRevision.get(logKey(log.taskId, log.date)) ?? 0) !== (snapshot.get(logKey(log.taskId, log.date)) ?? 0)
 
-export const useTaskStore =
-  create<TaskStore>()(
-    persist(
-      (set, get) => ({
-        // =========================
-        // STATE
-        // =========================
+  const kept = existing.filter((log) => {
+    if (!dateSet.has(log.date)) return true
+    return edited(log)
+  })
 
-        tasks: [],
-        dailyLogs: [],
-        reportData: null,
+  const fresh = incoming.filter((log) => dateSet.has(log.date) && !edited(log))
+  const freshKeys = new Set(fresh.map((log) => logKey(log.taskId, log.date)))
+  return [...kept.filter((log) => !freshKeys.has(logKey(log.taskId, log.date))), ...fresh]
+}
 
-        selectedDate: format(
-          new Date(),
-          'yyyy-MM-dd'
-        ),
+function replaceLog(logs: DailyLog[], next: DailyLog): DailyLog[] {
+  const index = logs.findIndex((log) => log.taskId === next.taskId && log.date === next.date)
+  if (index === -1) return [...logs, next]
+  return logs.map((log, itemIndex) => (itemIndex === index ? next : log))
+}
 
-        loading: false,
+function tempId(): string {
+  return `temp-${crypto.randomUUID()}`
+}
 
-        error: null,
+export const useTaskStore = create<TaskStore>()(
+  persist(
+    (set, get) => ({
+      tasks: [],
+      logs: [],
+      loadedDates: [],
+      tasksLoading: true,
+      tasksError: null,
+      logsError: null,
+      report: null,
+      reportRange: null,
+      reportLoading: false,
+      reportError: null,
+      selectedDate: todayKey(),
 
-        // =========================
-        // DATE
-        // =========================
+      setSelectedDate: (date) => set({ selectedDate: date }),
 
-        setSelectedDate: (
-          date: string
-        ) =>
-          set({
-            selectedDate: date,
-          }),
-
-        // =========================
-        // FETCH TODAY SUMMARY
-        // =========================
-
-        fetchTodaySummary:
-          async () => {
-            try {
-              set({
-                loading: true,
-              })
-
-              const { data } =
-                await apiClient.get(
-                  '/task/today-summary'
-                )
-
-              const tasks = (
-                data.data.tasks || []
-              ).map(normalizeTask)
-
-              const logs = (
-                data.data.logs || []
-              ).map(normalizeLog)
-
-              set({
-                tasks,
-                dailyLogs: logs,
-                loading: false,
-              })
-            } catch (error) {
-              console.error(error)
-
-              set({
-                error:
-                  'Failed to fetch today summary',
-
-                loading: false,
-              })
-            }
-          },
-
-        // =========================
-        // FETCH TASKS
-        // =========================
-
-        fetchTasks: async () => {
-          try {
-            set({
-              loading: true,
-            })
-
-            const { data } =
-              await apiClient.get(
-                '/task'
-              )
-
-              console.log("data",data);
-
-            const tasks = Array.isArray(data?.data)
-            ? data.data.map(normalizeTask)
-            : []
-            set({
-              tasks,
-              loading: false,
-            });
-            
-          } catch (error) {
-            console.error(error)
-
-            set({
-              error:
-                'Failed to fetch tasks',
-
-              loading: false,
-            })
-          }
-        },
-
-        // =========================
-        // CREATE TASK
-        // =========================
-
-        createTask: async (
-          taskData
-        ) => {
-          try {
-            const { data } =
-              await apiClient.post(
-                '/task',
-                taskData
-              )
-
-            const task =
-              normalizeTask(
-                data.data
-              )
-
-            set((state) => ({
-              tasks: [
-                ...state.tasks,
-                task,
-              ],
-            }))
-
-            return task
-          } catch (error) {
-            console.error(error)
-            throw error
-          }
-        },
-
-        // =========================
-        // UPDATE TASK
-        // =========================
-
-        updateTask: async (
-          id,
-          updates
-        ) => {
-          try {
-            const { data } =
-              await apiClient.put(
-                `/task/${id}`,
-                updates
-              )
-
-            const updatedTask =
-              normalizeTask(
-                data.data
-              )
-
-            set((state) => ({
-              tasks:
-                state.tasks.map(
-                  (task) =>
-                    task.id === id
-                      ? updatedTask
-                      : task
-                ),
-            }))
-          } catch (error) {
-            console.error(error)
-            throw error
-          }
-        },
-
-        // =========================
-        // DELETE TASK
-        // =========================
-
-        deleteTask: async (
-          id
-        ) => {
-          try {
-            await apiClient.delete(
-              `/task/${id}`
-            )
-
-            set((state) => ({
-              tasks:
-                state.tasks.filter(
-                  (task) =>
-                    task.id !== id
-                ),
-
-              dailyLogs:
-                state.dailyLogs.filter(
-                  (log) =>
-                    log.taskId !== id
-                ),
-            }))
-          } catch (error) {
-            console.error(error)
-            throw error
-          }
-        },
-
-        // =========================
-        // FETCH LOGS BY DATE
-        // =========================
-
-        fetchLogsByDate: async (date) => {
+      fetchTasks: async () => {
+        set({ tasksLoading: true, tasksError: null })
         try {
-
-          const { data } =
-            await apiClient.get(
-              `/task/logs?date=${date}`
-            )
-
-          const logs =
-            data.data.map(
-              normalizeLog
-            )
-
+          const { data } = await apiClient.get('/task')
+          const serverTasks = Array.isArray(data?.data) ? data.data.map(normalizeTask) : []
+          const pending = get().tasks.filter((task) => task.id.startsWith('temp-'))
           set({
-            dailyLogs: logs,
+            tasks: [...pending, ...serverTasks],
+            tasksLoading: false,
+            tasksError: null,
           })
-
         } catch (error) {
-
-          console.error(error)
-
           set({
-            error:
-              'Failed to fetch logs',
+            tasksLoading: false,
+            tasksError: apiMessage(error, 'Could not load tasks'),
           })
         }
       },
 
-        // =========================
-        // FETCH RANGE LOGS
-        // =========================
+      fetchLogsForDate: async (date) => {
+        await get().fetchLogsInRange(date, date)
+      },
 
-        fetchLogsInRange:
-          async (
-            start,
-            end
-          ) => {
-            try {
-              set({
-                loading: true,
-              })
+      fetchLogsInRange: async (start, end) => {
+        const dates = eachDate(start, end)
+        if (dates.length === 0) return
+        const epoch = claimDates(dates)
+        const snapshot = snapshotRevisions()
+        try {
+          const { data } =
+            start === end
+              ? await apiClient.get(`/task/logs?date=${start}`)
+              : await apiClient.get(`/task/logs/range?start=${start}&end=${end}`)
 
-              const { data } =
-                await apiClient.get(
-                  `/task/logs/range?start=${start}&end=${end}`
-                )
+          if (!datesStillCurrent(dates, epoch)) return
 
-              const logs =
-                data.data.logs.map(
-                  normalizeLog
-                )
+          const payload = start === end ? data?.data : data?.data?.logs
+          const incoming = Array.isArray(payload) ? payload.map(normalizeLog) : []
+          set((state) => ({
+            logs: mergeLogs(state.logs, incoming, dates, snapshot),
+            loadedDates: Array.from(new Set([...state.loadedDates, ...dates])),
+            logsError: null,
+          }))
+        } catch (error) {
+          if (!datesStillCurrent(dates, epoch)) return
+          set({ logsError: apiMessage(error, 'Could not load logs for this date') })
+        }
+      },
 
-              set({
-                dailyLogs: logs,
-                loading: false,
-              })
+      fetchReport: async (start, end) => {
+        const epoch = ++reportEpoch
+        set({ reportLoading: true, reportError: null })
+        try {
+          const { data } = await apiClient.get(`/task/logs/report?start=${start}&end=${end}`)
+          if (epoch !== reportEpoch) return
+          set({
+            report: normalizeReport(data?.data),
+            reportRange: { start, end },
+            reportLoading: false,
+            reportError: null,
+          })
+        } catch (error) {
+          if (epoch !== reportEpoch) return
+          set({
+            reportLoading: false,
+            reportError: apiMessage(error, 'Could not load this report'),
+          })
+        }
+      },
 
-              return logs
-            } catch (error) {
-              console.error(error)
+      createTask: async (input) => {
+        const optimistic = normalizeTask({
+          ...input,
+          _id: tempId(),
+          isActive: input.isActive ?? true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+        set((state) => ({ tasks: [optimistic, ...state.tasks] }))
+        try {
+          const { data } = await apiClient.post('/task', {
+            ...input,
+            repeatType: input.repeatType ?? 'daily',
+          })
+          const created = normalizeTask(data?.data)
+          set((state) => ({
+            tasks: state.tasks.map((task) => (task.id === optimistic.id ? created : task)),
+          }))
+          return created
+        } catch (error) {
+          set((state) => ({ tasks: state.tasks.filter((task) => task.id !== optimistic.id) }))
+          throw error
+        }
+      },
 
-              set({
-                error:
-                  'Failed to fetch logs',
+      updateTask: async (id, updates) => {
+        const previous = get().tasks.find((task) => task.id === id)
+        if (!previous) return
+        set((state) => ({
+          tasks: state.tasks.map((task) =>
+            task.id === id ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task,
+          ),
+        }))
+        try {
+          const { data } = await apiClient.put(`/task/${id}`, updates)
+          const updated = normalizeTask(data?.data)
+          set((state) => ({
+            tasks: state.tasks.map((task) => (task.id === id ? updated : task)),
+          }))
+        } catch (error) {
+          set((state) => ({
+            tasks: state.tasks.map((task) => (task.id === id ? previous : task)),
+          }))
+          throw error
+        }
+      },
 
-                loading: false,
-              })
-            }
-          },
+      deleteTask: async (id) => {
+        const previousTask = get().tasks.find((task) => task.id === id)
+        const previousLogs = get().logs.filter((log) => log.taskId === id)
+        set((state) => ({
+          tasks: state.tasks.filter((task) => task.id !== id),
+          logs: state.logs.filter((log) => log.taskId !== id),
+        }))
+        try {
+          await apiClient.delete(`/task/${id}`)
+        } catch (error) {
+          set((state) => ({
+            tasks: previousTask ? [previousTask, ...state.tasks] : state.tasks,
+            logs: [...state.logs, ...previousLogs],
+          }))
+          throw error
+        }
+      },
 
-        // =========================
-        // FETCH REPORT
-        // =========================
-
-        fetchReport: async (
-          start,
-          end
-        ) => {
-          try {
-            set({
-              loading: true,
-            })
-
-            const { data } =
-              await apiClient.get(
-                `/task/logs/report?start=${start}&end=${end}`
-              )
-
-            set({
-              reportData:
-                data.data,
-
-              loading: false,
-            })
-
-            return data.data
-          } catch (error) {
-            console.error(error)
-
-            set({
-              error:
-                'Failed to fetch report',
-
-              loading: false,
-            })
-          }
-        },
-
-        // =========================
-        // UPSERT LOG
-        // =========================
-
-        upsertLog: async (
+      upsertLog: async (taskId, date, input, target) => {
+        bumpRevision(taskId, date)
+        const completed = Math.max(0, input.completed)
+        const notes = input.notes?.trim() ?? ''
+        const previous = get().logs.find((log) => log.taskId === taskId && log.date === date)
+        const optimistic: DailyLog = {
+          id: previous?.id && !previous.id.startsWith('temp-') ? previous.id : tempId(),
           taskId,
           date,
-          logData
-        ) => {
-          try {
-            const { data } =
-              await apiClient.post(
-                '/task/logs/upsert',
-                {
-                  taskId,
-                  date,
+          completed,
+          notes,
+          status: deriveStatus(completed, target),
+        }
+        set((state) => ({ logs: replaceLog(state.logs, optimistic) }))
+        try {
+          const { data } = await apiClient.post('/task/logs/upsert', {
+            taskId,
+            date,
+            completed,
+            notes,
+          })
+          const saved = normalizeLog(data?.data)
+          const withTask = saved.taskId ? saved : { ...saved, taskId }
+          set((state) => ({ logs: replaceLog(state.logs, withTask) }))
+        } catch (error) {
+          set((state) => ({
+            logs: previous
+              ? replaceLog(state.logs, previous)
+              : state.logs.filter((log) => !(log.taskId === taskId && log.date === date)),
+          }))
+          throw error
+        }
+      },
 
-                  completed:
-                    logData.completed,
-
-                  notes:
-                    logData.notes ||
-                    '',
-                }
-              )
-
-            const updatedLog =
-              normalizeLog(
-                data.data
-              )
-
-            set((state) => {
-              const existing =
-                state.dailyLogs.find(
-                  (log) =>
-                    log.taskId ===
-                      taskId &&
-                    log.date ===
-                      date
-                )
-
-              if (existing) {
-                return {
-                  dailyLogs:
-                    state.dailyLogs.map(
-                      (log) =>
-                        log.taskId ===
-                          taskId &&
-                        log.date ===
-                          date
-                          ? updatedLog
-                          : log
-                    ),
-                }
-              }
-
-              return {
-                dailyLogs: [
-                  ...state.dailyLogs,
-                  updatedLog,
-                ],
-              }
-            })
-
-            return updatedLog
-          } catch (error) {
-            console.error(error)
-            throw error
+      deleteLog: async (id) => {
+        const previous = get().logs.find((log) => log.id === id)
+        if (previous) bumpRevision(previous.taskId, previous.date)
+        set((state) => ({ logs: state.logs.filter((log) => log.id !== id) }))
+        if (id.startsWith('temp-')) return
+        try {
+          await apiClient.delete(`/task/logs/${id}`)
+        } catch (error) {
+          if (previous) {
+            set((state) => ({ logs: replaceLog(state.logs, previous) }))
           }
-        },
-
-        // =========================
-        // DELETE LOG
-        // =========================
-
-        deleteLog: async (
-          id
-        ) => {
-          try {
-            await apiClient.delete(
-              `/task/logs/${id}`
-            )
-
-            set((state) => ({
-              dailyLogs:
-                state.dailyLogs.filter(
-                  (log) =>
-                    log.id !== id
-                ),
-            }))
-          } catch (error) {
-            console.error(error)
-            throw error
-          }
-        },
-
-        // =========================
-        // HELPERS
-        // =========================
-
-        getLogsForDate: (
-          date
-        ) => {
-          return get().dailyLogs.filter(
-            (log) =>
-              log.date === date
-          )
-        },
-
-        getLogsForDateRange: (
-          startDate,
-          endDate
-        ) => {
-          return get().dailyLogs.filter(
-            (log) =>
-              log.date >=
-                startDate &&
-              log.date <= endDate
-          )
-        },
-
-        getTaskById: (id) => {
-          return get().tasks.find(
-            (task) =>
-              task.id === id
-          )
-        },
-
-        getTodayStats: (
-          date
-        ) => {
-          const currentDate =
-            date ||
-            get().selectedDate
-
-          const logs =
-            get().dailyLogs.filter(
-              (log) =>
-                log.date ===
-                currentDate
-            )
-
-          const activeTasks =
-            get().tasks.filter(
-              (task) =>
-                task.isActive
-            )
-
-          const done =
-            logs.filter(
-              (log) =>
-                log.status ===
-                'done'
-            ).length
-
-          const partial =
-            logs.filter(
-              (log) =>
-                log.status ===
-                'partial'
-            ).length
-
-          const notDone =
-            logs.filter(
-              (log) =>
-                log.status ===
-                'not_done'
-            ).length
-
-          const pending =
-            activeTasks.length -
-            logs.length
-
-          return {
-            total:
-              activeTasks.length,
-
-            done,
-
-            partial,
-
-            notDone,
-
-            pending,
-          }
-        },
-      }),
-
-      {
-        name: 'taskflow-storage',
-      }
-    )
-  )
+          throw error
+        }
+      },
+    }),
+    {
+      name: 'taskflow-storage',
+      partialize: (state) => ({ selectedDate: state.selectedDate }),
+    },
+  ),
+)

@@ -4,6 +4,8 @@ export type DisplayStatus = TaskStatus | 'pending'
 
 export type Task = {
   id: string
+  /** Stable identity for the card while a create swaps the temporary id for the server id. */
+  clientKey?: string
   title: string
   description: string
   target: number

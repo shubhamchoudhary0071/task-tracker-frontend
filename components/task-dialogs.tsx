@@ -237,7 +237,7 @@ export default function TaskDialogs() {
 
       {editing ? (
         <TaskForm
-          key={editing.id}
+          key={editing.clientKey ?? editing.id}
           title="Edit task"
           description="Changes apply to this task going forward. Past logs stay as they were."
           initial={{

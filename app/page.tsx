@@ -346,7 +346,7 @@ export default function TodayPage() {
         ) : (
           filtered.map((task) => (
             <TaskCard
-              key={task.id}
+              key={task.clientKey ?? task.id}
               task={task}
               date={selectedDate}
               log={logFor(logs, task.id, selectedDate)}
@@ -377,7 +377,7 @@ export default function TodayPage() {
           ) : (
             archived.map((task) => (
               <TaskCard
-                key={task.id}
+                key={task.clientKey ?? task.id}
                 task={task}
                 date={selectedDate}
                 log={logFor(logs, task.id, selectedDate)}

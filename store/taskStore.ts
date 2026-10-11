@@ -14,6 +14,7 @@ import {
   todayKey,
 } from '@/lib/tasks'
 import apiClient from '@/utils/apiClient'
+import { usePreferences } from '@/store/preferences'
 
 type TaskStore = {
   tasks: Task[]
@@ -97,6 +98,20 @@ function tempId(): string {
   return `temp-${crypto.randomUUID()}`
 }
 
+const discardedTempIds = new Set<string>()
+
+function taskEdits(local: Task, created: Task): Partial<TaskInput> {
+  const updates: Partial<TaskInput> = {}
+  if (local.title !== created.title) updates.title = local.title
+  if (local.description !== created.description) updates.description = local.description
+  if (local.target !== created.target) updates.target = local.target
+  if (local.unit !== created.unit) updates.unit = local.unit
+  if (local.category !== created.category) updates.category = local.category
+  if (local.color !== created.color) updates.color = local.color
+  if (local.isActive !== created.isActive) updates.isActive = local.isActive
+  return updates
+}
+
 export const useTaskStore = create<TaskStore>()(
   persist(
     (set, get) => ({
@@ -119,9 +134,14 @@ export const useTaskStore = create<TaskStore>()(
         try {
           const { data } = await apiClient.get('/task')
           const serverTasks = Array.isArray(data?.data) ? data.data.map(normalizeTask) : []
-          const pending = get().tasks.filter((task) => task.id.startsWith('temp-'))
+          const previous = get().tasks
+          const pending = previous.filter((task) => task.id.startsWith('temp-'))
+          const keyed = serverTasks.map((task) => {
+            const match = previous.find((item) => item.id === task.id && item.clientKey)
+            return match ? { ...task, clientKey: match.clientKey } : task
+          })
           set({
-            tasks: [...pending, ...serverTasks],
+            tasks: [...pending, ...keyed],
             tasksLoading: false,
             tasksError: null,
           })
@@ -185,13 +205,17 @@ export const useTaskStore = create<TaskStore>()(
       },
 
       createTask: async (input) => {
-        const optimistic = normalizeTask({
-          ...input,
-          _id: tempId(),
-          isActive: input.isActive ?? true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        })
+        const id = tempId()
+        const optimistic = {
+          ...normalizeTask({
+            ...input,
+            _id: id,
+            isActive: input.isActive ?? true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }),
+          clientKey: id,
+        }
         set((state) => ({ tasks: [optimistic, ...state.tasks] }))
         try {
           const { data } = await apiClient.post('/task', {
@@ -199,11 +223,66 @@ export const useTaskStore = create<TaskStore>()(
             repeatType: input.repeatType ?? 'daily',
           })
           const created = normalizeTask(data?.data)
+
+          if (discardedTempIds.has(optimistic.id)) {
+            discardedTempIds.delete(optimistic.id)
+            await apiClient.delete(`/task/${created.id}`)
+            set((state) => ({
+              tasks: state.tasks.filter((task) => task.id !== optimistic.id && task.id !== created.id),
+              logs: state.logs.filter((log) => log.taskId !== optimistic.id && log.taskId !== created.id),
+            }))
+            return created
+          }
+
+          const localLogs = get().logs.filter((log) => log.taskId === optimistic.id)
+          for (const log of localLogs) bumpRevision(created.id, log.date)
           set((state) => ({
-            tasks: state.tasks.map((task) => (task.id === optimistic.id ? created : task)),
+            tasks: state.tasks.map((task) =>
+              task.id === optimistic.id
+                ? {
+                    ...created,
+                    clientKey: task.clientKey ?? optimistic.id,
+                    title: task.title,
+                    description: task.description,
+                    target: task.target,
+                    unit: task.unit,
+                    category: task.category,
+                    color: task.color,
+                    isActive: task.isActive,
+                  }
+                : task,
+            ),
+            logs: state.logs.map((log) =>
+              log.taskId === optimistic.id ? { ...log, taskId: created.id } : log,
+            ),
           }))
-          return created
+          const dialog = usePreferences.getState().dialog
+          if (dialog && 'taskId' in dialog && dialog.taskId === optimistic.id) {
+            usePreferences.getState().setDialog({ ...dialog, taskId: created.id })
+          }
+
+          const current = get().tasks.find((task) => task.id === created.id)
+          const edits = current ? taskEdits(current, created) : {}
+          if (Object.keys(edits).length > 0) {
+            await apiClient.put(`/task/${created.id}`, edits)
+          }
+
+          for (const log of localLogs) {
+            const { data: savedBody } = await apiClient.post('/task/logs/upsert', {
+              taskId: created.id,
+              date: log.date,
+              completed: log.completed,
+              notes: log.notes,
+            })
+            const saved = normalizeLog(savedBody?.data)
+            set((state) => ({
+              logs: replaceLog(state.logs, saved.taskId ? saved : { ...saved, taskId: created.id }),
+            }))
+          }
+
+          return get().tasks.find((task) => task.id === created.id) ?? created
         } catch (error) {
+          discardedTempIds.delete(optimistic.id)
           set((state) => ({ tasks: state.tasks.filter((task) => task.id !== optimistic.id) }))
           throw error
         }
@@ -217,11 +296,14 @@ export const useTaskStore = create<TaskStore>()(
             task.id === id ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task,
           ),
         }))
+        if (id.startsWith('temp-')) return
         try {
           const { data } = await apiClient.put(`/task/${id}`, updates)
           const updated = normalizeTask(data?.data)
           set((state) => ({
-            tasks: state.tasks.map((task) => (task.id === id ? updated : task)),
+            tasks: state.tasks.map((task) =>
+              task.id === id ? { ...updated, clientKey: task.clientKey } : task,
+            ),
           }))
         } catch (error) {
           set((state) => ({
@@ -238,6 +320,10 @@ export const useTaskStore = create<TaskStore>()(
           tasks: state.tasks.filter((task) => task.id !== id),
           logs: state.logs.filter((log) => log.taskId !== id),
         }))
+        if (id.startsWith('temp-')) {
+          discardedTempIds.add(id)
+          return
+        }
         try {
           await apiClient.delete(`/task/${id}`)
         } catch (error) {
@@ -263,6 +349,7 @@ export const useTaskStore = create<TaskStore>()(
           status: deriveStatus(completed, target),
         }
         set((state) => ({ logs: replaceLog(state.logs, optimistic) }))
+        if (taskId.startsWith('temp-')) return
         try {
           const { data } = await apiClient.post('/task/logs/upsert', {
             taskId,

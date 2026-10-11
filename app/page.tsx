@@ -217,6 +217,8 @@ export default function TodayPage() {
               date={selectedDate}
               log={logFor(logs, task.id, selectedDate)}
               logsKnown={logsReady}
+              logFailed={Boolean(logsError) && !logsReady}
+              onRetryLog={() => void fetchLogsForDate(selectedDate)}
             />
           ))
         )}
@@ -228,13 +230,17 @@ export default function TodayPage() {
         date={selectedDate}
         logs={logs}
         logsReady={logsReady}
+        logFailed={Boolean(logsError) && !logsReady}
+        onRetryLog={() => void fetchLogsForDate(selectedDate)}
         onToggle={() => setShowArchived(!showArchived)}
       />
 
       <div className="mt-6">
         {reportError ? <Banner message={reportError} onRetry={() => void fetchReport(chartStart, today)} /> : null}
         {reportLoading && chartDays.length === 0 ? (
-          <div className="h-64 animate-pulse rounded-2xl border border-border bg-card" />
+          <div className="flex h-64 items-center justify-center rounded-2xl border border-border bg-card text-sm text-muted-foreground" aria-busy="true">
+            Loading the 14-day chart
+          </div>
         ) : (
           <DailyChart days={chartDays} />
         )}

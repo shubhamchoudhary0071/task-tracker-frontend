@@ -10,6 +10,8 @@ export default function ArchivedList({
   date,
   logs,
   logsReady,
+  logFailed,
+  onRetryLog,
   onToggle,
 }: {
   open: boolean
@@ -17,6 +19,8 @@ export default function ArchivedList({
   date: string
   logs: DailyLog[]
   logsReady: boolean
+  logFailed: boolean
+  onRetryLog: () => void
   onToggle: () => void
 }) {
   return (
@@ -47,6 +51,8 @@ export default function ArchivedList({
                 date={date}
                 log={logFor(logs, task.id, date)}
                 logsKnown={logsReady}
+                logFailed={logFailed}
+                onRetryLog={onRetryLog}
               />
             ))
           )}

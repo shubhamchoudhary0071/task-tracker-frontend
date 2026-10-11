@@ -34,6 +34,7 @@ export const createLogSlice: StateCreator<TaskStore, [], [], LogSlice> = (set, g
     if (dates.length === 0) return
     const epoch = claimDates(dates)
     const snapshot = snapshotRevisions()
+    set({ logsError: null })
     try {
       const { data } =
         start === end

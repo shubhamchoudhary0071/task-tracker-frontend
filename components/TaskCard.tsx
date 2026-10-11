@@ -21,9 +21,11 @@ type TaskCardProps = {
   log?: DailyLog
   date: string
   logsKnown: boolean
+  logFailed?: boolean
+  onRetryLog?: () => void
 }
 
-export default function TaskCard({ task, log, date, logsKnown }: TaskCardProps) {
+export default function TaskCard({ task, log, date, logsKnown, logFailed = false, onRetryLog }: TaskCardProps) {
   const upsertLog = useTaskStore((state) => state.upsertLog)
   const deleteLog = useTaskStore((state) => state.deleteLog)
   const updateTask = useTaskStore((state) => state.updateTask)
@@ -121,7 +123,7 @@ export default function TaskCard({ task, log, date, logsKnown }: TaskCardProps) 
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
                   {task.category}
                   {task.isActive ? '' : ' · Archived'}
-                  {logsKnown ? ` · ${getStatusLabel(status)}` : ' · Loading log'}
+                  {logsKnown ? ` · ${getStatusLabel(status)}` : logFailed ? ' · Log unavailable' : ' · Loading log'}
                 </p>
               </button>
             )}
@@ -168,12 +170,24 @@ export default function TaskCard({ task, log, date, logsKnown }: TaskCardProps) 
                     /{task.target} {task.unit}
                   </span>
                 </>
+              ) : logFailed ? (
+                'Couldn’t load this log'
               ) : (
-                'Log not loaded'
+                'Loading log'
               )}
             </span>
             <span>{logsKnown ? `${percent}%` : ''}</span>
           </div>
+
+          {logFailed && !logsKnown ? (
+            <button
+              type="button"
+              onClick={onRetryLog}
+              className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-primary"
+            >
+              Retry
+            </button>
+          ) : null}
 
           {logsKnown && task.isActive ? (
             <div className="mt-3 grid grid-cols-3 gap-1.5">

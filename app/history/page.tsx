@@ -14,7 +14,7 @@ import {
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import AppShell from '@/components/app-shell'
-import { historyTasks, logFor, summarizeTasks, todayKey } from '@/lib/tasks'
+import { displayStatus, historyTasks, logFor, summarizeTasks, todayKey } from '@/lib/tasks'
 import { cn, getStatusColor, getStatusLabel } from '@/lib/utils'
 import { useTaskStore } from '@/store/taskStore'
 
@@ -48,8 +48,8 @@ export default function HistoryPage() {
   const leading = startOfMonth(month).getDay()
   const monthReady = loadedDates.includes(start)
   const dayTasks = useMemo(
-    () => historyTasks(tasks, logs, selectedDate),
-    [logs, selectedDate, tasks],
+    () => (selectedDate > today ? [] : historyTasks(tasks, logs, selectedDate)),
+    [logs, selectedDate, tasks, today],
   )
   const selectedSummary = summarizeTasks(dayTasks, logs, selectedDate)
 
@@ -114,14 +114,14 @@ export default function HistoryPage() {
                   aria-pressed={selected}
                   aria-label={format(day, 'MMMM d')}
                   className={cn(
-                    'flex aspect-square flex-col items-center justify-center rounded-xl border text-xs',
+                    'flex aspect-square min-h-11 min-w-11 flex-col items-center justify-center rounded-xl border text-xs',
                     future && 'cursor-not-allowed opacity-30',
                     selected ? 'border-ring bg-accent' : 'border-transparent hover:bg-muted',
                     isToday(day) && !selected && 'border-border',
                   )}
                 >
                   <span>{format(day, 'd')}</span>
-                  {summary.total > 0 ? (
+                  {!future && summary.total > 0 ? (
                     <span
                       className="mt-1 h-1 w-4 rounded-full"
                       style={{
@@ -162,7 +162,7 @@ export default function HistoryPage() {
             ) : (
               dayTasks.map((task) => {
                 const log = logFor(logs, task.id, selectedDate)
-                const status = log?.status ?? 'pending'
+                const status = displayStatus(log, selectedDate)
                 const colors = getStatusColor(status)
                 return (
                   <div key={task.id} className={cn('rounded-xl border p-3', colors.border, colors.bg)}>

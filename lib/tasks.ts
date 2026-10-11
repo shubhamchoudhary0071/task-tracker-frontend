@@ -154,8 +154,11 @@ export function normalizeReport(raw: unknown): ReportData {
 }
 
 export function fillDailyStats(stats: DailyStat[], start: string, end: string): DailyStat[] {
-  const byDate = new Map(stats.map((item) => [item.date, item]))
-  return eachDate(start, end).map(
+  const today = todayKey()
+  const last = end < today ? end : today
+  if (start > last) return []
+  const byDate = new Map(stats.filter((item) => item.date <= today).map((item) => [item.date, item]))
+  return eachDate(start, last).map(
     (date) =>
       byDate.get(date) ?? {
         date,
@@ -169,6 +172,9 @@ export function fillDailyStats(stats: DailyStat[], start: string, end: string): 
 }
 
 export function summarizeTasks(tasks: Task[], logs: DailyLog[], date: string): DaySummary {
+  if (isFutureDate(date)) {
+    return { total: 0, done: 0, partial: 0, notDone: 0, pending: 0, score: 0 }
+  }
   const ids = new Set(tasks.map((task) => task.id))
   const dayLogs = logs.filter((log) => log.date === date && ids.has(log.taskId))
   const done = dayLogs.filter((log) => log.status === 'done').length
@@ -207,8 +213,10 @@ export function logFor(logs: DailyLog[], taskId: string, date: string): DailyLog
   return logs.find((log) => log.taskId === taskId && log.date === date)
 }
 
-export function displayStatus(log?: DailyLog): DisplayStatus {
-  return log?.status ?? 'pending'
+export function displayStatus(log?: DailyLog, date?: string): DisplayStatus {
+  const status = log?.status ?? 'pending'
+  if (date && isFutureDate(date) && status === 'not_done') return 'pending'
+  return status
 }
 
 export function sortTasks(tasks: Task[], logs: DailyLog[], date: string, sort: SortKey): Task[] {
@@ -219,7 +227,7 @@ export function sortTasks(tasks: Task[], logs: DailyLog[], date: string, sort: S
     return log.completed / task.target
   }
   const attention = (task: Task) => {
-    const status = displayStatus(logFor(logs, task.id, date))
+    const status = displayStatus(logFor(logs, task.id, date), date)
     if (status === 'pending') return 0
     if (status === 'partial') return 1
     if (status === 'not_done') return 2
@@ -240,9 +248,10 @@ export function sortTasks(tasks: Task[], logs: DailyLog[], date: string, sort: S
 }
 
 export function streaks(days: DailyStat[], today = todayKey()): { current: number; best: number } {
+  const counted = days.filter((day) => day.date <= today)
   let best = 0
   let run = 0
-  for (const day of days) {
+  for (const day of counted) {
     if (day.total > 0 && day.completionPct >= 70) {
       run += 1
       best = Math.max(best, run)
@@ -251,11 +260,11 @@ export function streaks(days: DailyStat[], today = todayKey()): { current: numbe
     }
   }
 
-  const last = days[days.length - 1]
+  const last = counted[counted.length - 1]
   const series =
     last && last.date === today && !(last.total > 0 && last.completionPct >= 70)
-      ? days.slice(0, -1)
-      : days
+      ? counted.slice(0, -1)
+      : counted
 
   let current = 0
   for (let index = series.length - 1; index >= 0; index -= 1) {

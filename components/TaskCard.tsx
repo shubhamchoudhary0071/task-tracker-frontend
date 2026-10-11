@@ -34,7 +34,7 @@ export default function TaskCard({ task, log, date, logsKnown }: TaskCardProps) 
   const [renaming, setRenaming] = useState(false)
   const [title, setTitle] = useState(task.title)
   const [busy, setBusy] = useState(false)
-  const status = logsKnown ? displayStatus(log) : 'pending'
+  const status = logsKnown ? displayStatus(log, date) : 'pending'
   const colors = getStatusColor(logsKnown ? status : 'pending')
   const completed = log?.completed ?? 0
   const percent = logsKnown ? completionPercent(completed, task.target) : 0

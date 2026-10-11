@@ -108,7 +108,7 @@ export default function TodayPage() {
     const matched =
       status === 'all'
         ? visible
-        : visible.filter((task) => displayStatus(logFor(logs, task.id, selectedDate)) === status)
+        : visible.filter((task) => displayStatus(logFor(logs, task.id, selectedDate), selectedDate) === status)
     return sortTasks(matched, logs, selectedDate, sort)
   }, [logs, selectedDate, sort, status, visible])
 
@@ -126,7 +126,7 @@ export default function TodayPage() {
       pending: 0,
     }
     for (const task of visible) {
-      tally[displayStatus(logFor(logs, task.id, selectedDate))] += 1
+      tally[displayStatus(logFor(logs, task.id, selectedDate), selectedDate)] += 1
     }
     return tally
   }, [logs, selectedDate, visible])

@@ -19,34 +19,34 @@ export function getStatusColor(status: Status | string): StatusColor {
   switch (status) {
     case 'done':
       return {
-        text: 'text-emerald-400',
+        text: 'text-emerald-700 dark:text-emerald-300',
         bg: 'bg-emerald-500/10',
-        border: 'border-emerald-500/20',
-        dot: 'bg-emerald-400',
+        border: 'border-emerald-600/25 dark:border-emerald-400/25',
+        dot: 'bg-emerald-500',
       }
 
     case 'partial':
       return {
-        text: 'text-amber-400',
+        text: 'text-amber-800 dark:text-amber-300',
         bg: 'bg-amber-500/10',
-        border: 'border-amber-500/20',
-        dot: 'bg-amber-400',
+        border: 'border-amber-600/25 dark:border-amber-400/25',
+        dot: 'bg-amber-500',
       }
 
     case 'not_done':
       return {
-        text: 'text-rose-400',
+        text: 'text-rose-700 dark:text-rose-300',
         bg: 'bg-rose-500/10',
-        border: 'border-rose-500/20',
-        dot: 'bg-rose-400',
+        border: 'border-rose-600/25 dark:border-rose-400/25',
+        dot: 'bg-rose-500',
       }
 
     default:
       return {
-        text: 'text-zinc-500',
-        bg: 'bg-zinc-500/10',
-        border: 'border-zinc-500/20',
-        dot: 'bg-zinc-500',
+        text: 'text-muted-foreground',
+        bg: 'bg-muted',
+        border: 'border-border',
+        dot: 'bg-muted-foreground',
       }
   }
 }
@@ -60,7 +60,7 @@ export function getStatusLabel(status: Status | string): string {
       return 'Partial'
 
     case 'not_done':
-      return 'Not Done'
+      return 'Missed'
 
     default:
       return 'Pending'

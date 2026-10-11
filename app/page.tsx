@@ -1,626 +1,270 @@
 'use client'
 
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { useEffect, useMemo } from 'react'
+import { format, parseISO, subDays } from 'date-fns'
+import { toast } from 'sonner'
+import { CalendarPlus } from 'lucide-react'
 
-import {
-  format,
-  parseISO,
-} from 'date-fns'
-
-import {
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Plus,
-} from 'lucide-react'
-
-import Sidebar from '@/components/Sidebar'
-import TaskCard from '@/components/TaskCard'
-import StatsOverview from '@/components/StatsOverview'
-import AddTaskModal from '@/components/AddTaskModal'
+import AppShell from '@/components/app-shell'
 import DailyChart from '@/components/charts/DailyChart'
-
+import TaskCard from '@/components/TaskCard'
+import ArchivedList from '@/components/today/ArchivedList'
+import DayHeader from '@/components/today/DayHeader'
+import QuickAdd from '@/components/today/QuickAdd'
+import StatsGrid from '@/components/today/StatsGrid'
+import TaskFilters from '@/components/today/TaskFilters'
+import { CATEGORIES } from '@/lib/sampleData'
+import type { DisplayStatus, StatusFilter, Task } from '@/lib/types'
+import {
+  daySummary,
+  displayStatus,
+  fillDailyStats,
+  logFor,
+  sortTasks,
+  taskExistedOn,
+  todayKey,
+} from '@/lib/tasks'
+import { getStatusLabel } from '@/lib/utils'
+import { usePreferences } from '@/store/preferences'
 import { useTaskStore } from '@/store/taskStore'
 
-import { cn } from '@/lib/utils'
-
-type TaskStatus =
-  | 'done'
-  | 'partial'
-  | 'not_done'
-
-type DisplayStatus =
-  | TaskStatus
-  | 'pending'
-
-type FilterKey =
-  | 'all'
-  | DisplayStatus
-
-type Task = {
-  id: string
-  title: string
-  description?: string
-  target: number
-  unit: string
-  category: string
-  color: string
-  isActive: boolean
-  createdAt: string
-}
-
-type TaskLog = {
-  id?: string
-  taskId: string
-  status: TaskStatus
-  completed?: number
-  notes?: string
-}
-
-type TodayStats = {
-  total: number
-  done: number
-  partial: number
-  notDone: number
-  pending: number
-}
-
-type FilterOption = {
-  key: FilterKey
-  label: string
-  activeClassName: string
-  dotClassName: string
-}
-
-const FILTERS: FilterOption[] =
-  [
-    {
-      key: 'all',
-      label: 'All',
-
-      activeClassName:
-        'bg-zinc-500/15 border-zinc-500/25 text-zinc-300',
-
-      dotClassName:
-        'bg-zinc-500',
-    },
-
-    {
-      key: 'done',
-      label: 'Done',
-
-      activeClassName:
-        'bg-emerald-500/15 border-emerald-500/25 text-emerald-400',
-
-      dotClassName:
-        'bg-emerald-500',
-    },
-
-    {
-      key: 'partial',
-      label: 'Partial',
-
-      activeClassName:
-        'bg-amber-500/15 border-amber-500/25 text-amber-400',
-
-      dotClassName:
-        'bg-amber-500',
-    },
-
-    {
-      key: 'not_done',
-      label: 'Missed',
-
-      activeClassName:
-        'bg-rose-500/15 border-rose-500/25 text-rose-400',
-
-      dotClassName:
-        'bg-rose-500',
-    },
-
-    {
-      key: 'pending',
-      label: 'Pending',
-
-      activeClassName:
-        'bg-zinc-500/15 border-zinc-500/25 text-zinc-300',
-
-      dotClassName:
-        'bg-zinc-500',
-    },
-  ]
-
 export default function TodayPage() {
-  // =========================
-  // STORE
-  // =========================
+  const tasks = useTaskStore((state) => state.tasks)
+  const logs = useTaskStore((state) => state.logs)
+  const loadedDates = useTaskStore((state) => state.loadedDates)
+  const tasksLoading = useTaskStore((state) => state.tasksLoading)
+  const tasksError = useTaskStore((state) => state.tasksError)
+  const logsError = useTaskStore((state) => state.logsError)
+  const report = useTaskStore((state) => state.report)
+  const reportRange = useTaskStore((state) => state.reportRange)
+  const reportLoading = useTaskStore((state) => state.reportLoading)
+  const reportError = useTaskStore((state) => state.reportError)
+  const selectedDate = useTaskStore((state) => state.selectedDate)
+  const setSelectedDate = useTaskStore((state) => state.setSelectedDate)
+  const fetchTasks = useTaskStore((state) => state.fetchTasks)
+  const fetchLogsForDate = useTaskStore((state) => state.fetchLogsForDate)
+  const fetchReport = useTaskStore((state) => state.fetchReport)
+  const createTask = useTaskStore((state) => state.createTask)
+  const setDialog = usePreferences((state) => state.setDialog)
+  const query = usePreferences((state) => state.query)
+  const setQuery = usePreferences((state) => state.setQuery)
+  const status = usePreferences((state) => state.status)
+  const setStatus = usePreferences((state) => state.setStatus)
+  const category = usePreferences((state) => state.category)
+  const setCategory = usePreferences((state) => state.setCategory)
+  const sort = usePreferences((state) => state.sort)
+  const setSort = usePreferences((state) => state.setSort)
+  const showArchived = usePreferences((state) => state.showArchived)
+  const setShowArchived = usePreferences((state) => state.setShowArchived)
 
-  const {
-    tasks,
-    loading,
-
-    selectedDate,
-
-    setSelectedDate,
-
-    getLogsForDate,
-    getTodayStats,
-
-    fetchTasks,
-    fetchLogsByDate,
-  } = useTaskStore()
-
-  // =========================
-  // STATE
-  // =========================
-
-  const [
-    showAddModal,
-    setShowAddModal,
-  ] = useState<boolean>(false)
-
-  const [filter, setFilter] =
-    useState<FilterKey>(
-      'all'
-    )
-
-  // =========================
-  // FETCH TASKS
-  // =========================
+  const today = todayKey()
+  const chartStart = format(subDays(parseISO(today), 13), 'yyyy-MM-dd')
+  const logsReady = loadedDates.includes(selectedDate)
 
   useEffect(() => {
-    fetchTasks()
+    void fetchTasks()
   }, [fetchTasks])
 
-  // =========================
-  // FETCH LOGS
-  // =========================
+  useEffect(() => {
+    void fetchLogsForDate(selectedDate)
+  }, [fetchLogsForDate, selectedDate])
 
   useEffect(() => {
-    fetchLogsByDate(
-      selectedDate
-    )
-  }, [
-    selectedDate,
-    fetchLogsByDate,
-  ])
+    void fetchReport(chartStart, today)
+  }, [chartStart, fetchReport, today])
 
-  // =========================
-  // TYPES
-  // =========================
-
-  const taskList =
-    tasks as Task[]
-
-  const logs =
-    getLogsForDate(
-      selectedDate
-    ) as TaskLog[]
-
-  const stats =
-    getTodayStats(
-      selectedDate
-    ) as TodayStats
-
-  // =========================
-  // ACTIVE TASKS
-  // =========================
-
-  const activeTasks =
-    useMemo(() => {
-      return taskList.filter(
-        (task) =>
-          task.isActive
-      )
-    }, [taskList])
-
-  // =========================
-  // DATE
-  // =========================
-
-  const todayDate = format(
-    new Date(),
-    'yyyy-MM-dd'
-  )
-
-  const isCurrentDay =
-    selectedDate ===
-    todayDate
-
-  function shiftDay(
-    delta: number
-  ): void {
-    const nextDate =
-      parseISO(
-        selectedDate
-      )
-
-    nextDate.setDate(
-      nextDate.getDate() +
-        delta
-    )
-
-    if (
-      nextDate >
-      new Date()
-    ) {
-      return
-    }
-
-    setSelectedDate(
-      format(
-        nextDate,
-        'yyyy-MM-dd'
-      )
-    )
-  }
-
-  // =========================
-  // FILTER TASKS
-  // =========================
-
-  const filteredTasks =
-    useMemo(() => {
-      if (
-        filter === 'all'
-      ) {
-        return activeTasks
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key === '/') {
+        event.preventDefault()
+        document.getElementById('task-search')?.focus()
       }
+      if (event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        document.getElementById('quick-add-title')?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
-      return activeTasks.filter(
-        (task) => {
-          const log =
-            logs.find(
-              (
-                item
-              ) =>
-                item.taskId ===
-                task.id
-            )
+  useEffect(() => {
+    if (!logsReady || !window.location.hash) return
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'center' })
+  }, [logsReady])
 
-          const status: DisplayStatus =
-            log?.status ??
-            'pending'
+  const summary = daySummary(tasks, logs, selectedDate)
+  const visible = useMemo(() => {
+    const active = tasks.filter((task) => task.isActive && taskExistedOn(task, selectedDate))
+    const searched = active.filter((task) => matchesQuery(task, query))
+    return category === 'all' ? searched : searched.filter((task) => task.category === category)
+  }, [category, query, selectedDate, tasks])
 
-          return (
-            status ===
-            filter
-          )
-        }
-      )
-    }, [
-      activeTasks,
-      filter,
-      logs,
-    ])
+  const filtered = useMemo(() => {
+    const matched =
+      status === 'all'
+        ? visible
+        : visible.filter((task) => displayStatus(logFor(logs, task.id, selectedDate), selectedDate) === status)
+    return sortTasks(matched, logs, selectedDate, sort)
+  }, [logs, selectedDate, sort, status, visible])
 
-  // =========================
-  // FILTER COUNTS
-  // =========================
+  const archived = useMemo(() => {
+    if (!showArchived) return []
+    return tasks.filter((task) => !task.isActive && matchesQuery(task, query))
+  }, [query, showArchived, tasks])
 
-  const filterCounts: Record<
-    FilterKey,
-    number
-  > = useMemo(
-    () => ({
-      all:
-        activeTasks.length,
+  const counts = useMemo(() => {
+    const tally: Record<StatusFilter, number> = {
+      all: visible.length,
+      done: 0,
+      partial: 0,
+      not_done: 0,
+      pending: 0,
+    }
+    for (const task of visible) {
+      tally[displayStatus(logFor(logs, task.id, selectedDate), selectedDate)] += 1
+    }
+    return tally
+  }, [logs, selectedDate, visible])
 
-      done:
-        stats.done,
+  const chartDays =
+    report && reportRange?.start === chartStart && reportRange.end === today
+      ? fillDailyStats(report.dailyStats, chartStart, today)
+      : []
 
-      partial:
-        stats.partial,
-
-      not_done:
-        stats.notDone,
-
-      pending:
-        stats.pending,
-    }),
-
-    [
-      activeTasks.length,
-
-      stats.done,
-      stats.partial,
-      stats.notDone,
-      stats.pending,
-    ]
-  )
-
-  // =========================
-  // DISPLAY DATE
-  // =========================
-
-  const displayDate =
-    isCurrentDay
-      ? 'Today'
-      : format(
-          parseISO(
-            selectedDate
-          ),
-          'EEEE, MMMM d'
-        )
-
-  // =========================
-  // LOADING
-  // =========================
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0b] text-sm text-zinc-400">
-        Loading tasks...
-      </div>
-    )
+  function moveDay(delta: number) {
+    const current = parseISO(selectedDate)
+    const next = format(new Date(current.getFullYear(), current.getMonth(), current.getDate() + delta), 'yyyy-MM-dd')
+    if (next > today) return
+    setSelectedDate(next)
   }
+
+  const showSkeleton = tasksLoading && tasks.length === 0
 
   return (
-    <div className="min-h-screen bg-[#0a0a0b]">
-      <Sidebar />
+    <AppShell>
+      <DayHeader
+        selectedDate={selectedDate}
+        today={today}
+        summary={summary}
+        onMove={moveDay}
+        onSelectDate={setSelectedDate}
+        onCreate={() => setDialog({ type: 'create' })}
+      />
 
-      <main className="w-full px-4 pb-24 pt-20 sm:p-6 lg:ml-[220px] lg:max-w-[calc(100%-220px)] lg:pb-6 lg:pt-6">
-        {/* Header */}
+      {tasksError ? <Banner message={tasksError} onRetry={() => void fetchTasks()} /> : null}
+      {logsError ? <Banner message={logsError} onRetry={() => void fetchLogsForDate(selectedDate)} /> : null}
 
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-3">
-              <h1 className="truncate font-syne text-2xl font-bold text-zinc-100 sm:text-3xl">
-                {
-                  displayDate
-                }
-              </h1>
+      <StatsGrid summary={summary} onFilter={setStatus} />
 
-              {isCurrentDay && (
-                <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/20 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-amber-400">
-                  Live
-                </span>
-              )}
-            </div>
+      <QuickAdd
+        onCreate={async (title, target) => {
+          const personal = CATEGORIES.find((item) => item.value === 'Personal')
+          await createTask({
+            title,
+            target,
+            unit: 'tasks',
+            category: 'Personal',
+            color: personal?.color ?? '#ec4899',
+            repeatType: 'daily',
+          })
+          toast.success('Task added')
+        }}
+      />
 
-            <p className="mt-0.5 truncate font-body text-sm text-zinc-600">
-              {format(
-                parseISO(
-                  selectedDate
-                ),
-                'MMMM d, yyyy'
-              )}{' '}
-              ·{' '}
-              {
-                activeTasks.length
-              }{' '}
-              tasks active
+      <TaskFilters
+        query={query}
+        sort={sort}
+        category={category}
+        status={status}
+        counts={counts}
+        onQuery={setQuery}
+        onSort={setSort}
+        onCategory={setCategory}
+        onStatus={setStatus}
+      />
+
+      <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {showSkeleton ? (
+          Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="h-36 animate-pulse rounded-2xl border border-border bg-card" />
+          ))
+        ) : filtered.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border px-4 py-14 text-center xl:col-span-2">
+            <CalendarPlus className="mx-auto text-muted-foreground" size={22} />
+            <p className="mt-3 text-sm font-medium">
+              {tasks.filter((task) => task.isActive).length === 0
+                ? 'No active tasks yet'
+                : `No ${status === 'all' ? '' : `${getStatusLabel(status as DisplayStatus).toLowerCase()} `}tasks match`}
             </p>
-          </div>
-
-          {/* Actions */}
-
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            {/* Date controls */}
-
-            <div className="flex w-full items-center overflow-hidden rounded-lg border border-zinc-800 bg-[#111113] sm:w-auto">
-              <button
-                type="button"
-                onClick={() =>
-                  shiftDay(
-                    -1
-                  )
-                }
-                className="flex flex-1 justify-center p-2 transition-colors hover:bg-zinc-800 sm:flex-none"
-              >
-                <ChevronLeft
-                  size={14}
-                  className="text-zinc-400"
-                />
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedDate(
-                    todayDate
-                  )
-                }
-                className={cn(
-                  'flex-1 px-3 py-1.5 font-mono text-xs transition-colors sm:flex-none',
-
-                  isCurrentDay
-                    ? 'text-amber-400'
-                    : 'text-zinc-500 hover:text-zinc-300'
-                )}
-              >
-                Today
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  shiftDay(
-                    1
-                  )
-                }
-                disabled={
-                  isCurrentDay
-                }
-                className="flex flex-1 justify-center p-2 transition-colors hover:bg-zinc-800 disabled:opacity-30 sm:flex-none"
-              >
-                <ChevronRight
-                  size={14}
-                  className="text-zinc-400"
-                />
-              </button>
-            </div>
-
-            {/* Add button */}
-
             <button
               type="button"
-              onClick={() =>
-                setShowAddModal(
-                  true
-                )
-              }
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2 font-mono text-sm font-semibold text-black transition-colors hover:bg-amber-400 sm:w-auto"
+              onClick={() => setDialog({ type: 'create' })}
+              className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-primary"
             >
-              <Plus
-                size={14}
-              />
-
-              Add Task
+              Create a task
             </button>
           </div>
-        </div>
+        ) : (
+          filtered.map((task) => (
+            <TaskCard
+              key={task.clientKey ?? task.id}
+              task={task}
+              date={selectedDate}
+              log={logFor(logs, task.id, selectedDate)}
+              logsKnown={logsReady}
+              logFailed={Boolean(logsError) && !logsReady}
+              onRetryLog={() => void fetchLogsForDate(selectedDate)}
+            />
+          ))
+        )}
+      </div>
 
-        {/* Stats */}
-
-        <StatsOverview
-          stats={stats}
-        />
-
-        {/* Filters */}
-
-        <div className="-mx-4 mb-4 mt-5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
-          <div className="flex min-w-max items-center gap-2">
-            {FILTERS.map(
-              ({
-                key,
-                label,
-                activeClassName,
-                dotClassName,
-              }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() =>
-                    setFilter(
-                      key
-                    )
-                  }
-                  className={cn(
-                    'flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-body text-xs transition-all',
-
-                    filter ===
-                      key
-                      ? activeClassName
-                      : 'border-zinc-800 bg-transparent text-zinc-600 hover:border-zinc-700 hover:text-zinc-400'
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'inline-block h-1.5 w-1.5 rounded-full',
-                      dotClassName
-                    )}
-                  />
-
-                  {label}
-
-                  <span
-                    className={cn(
-                      'rounded-full px-1 py-0.5 font-mono text-[10px]',
-
-                      filter ===
-                        key
-                        ? 'bg-white/10'
-                        : 'bg-zinc-800'
-                    )}
-                  >
-                    {
-                      filterCounts[
-                        key
-                      ]
-                    }
-                  </span>
-                </button>
-              )
-            )}
-          </div>
-        </div>
-
-        {/* Tasks */}
-
-        <div className="mb-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {filteredTasks.length ===
-          0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-900/80 bg-zinc-950/30 px-4 py-16 text-center xl:col-span-2">
-              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-800/50">
-                <Calendar
-                  size={20}
-                  className="text-zinc-600"
-                />
-              </div>
-
-              <div className="font-body text-sm text-zinc-500">
-                No tasks in
-                this filter
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setShowAddModal(
-                    true
-                  )
-                }
-                className="mt-3 font-mono text-xs text-amber-500 hover:text-amber-400"
-              >
-                + Add your
-                first task
-              </button>
-            </div>
-          ) : (
-            filteredTasks.map(
-              (task) => {
-                const log =
-                  logs.find(
-                    (
-                      item
-                    ) =>
-                      item.taskId ===
-                      task.id
-                  )
-
-                return (
-                  <TaskCard
-                    key={
-                      task.id
-                    }
-                    task={
-                      task
-                    }
-                    log={
-                      log
-                    }
-                    date={
-                      selectedDate
-                    }
-                  />
-                )
-              }
-            )
-          )}
-        </div>
-
-        {/* Chart */}
-
-        <DailyChart />
-      </main>
-
-      {/* Modal */}
-
-      <AddTaskModal
-        open={
-          showAddModal
-        }
-        onClose={() =>
-          setShowAddModal(
-            false
-          )
-        }
+      <ArchivedList
+        open={showArchived}
+        tasks={archived}
+        date={selectedDate}
+        logs={logs}
+        logsReady={logsReady}
+        logFailed={Boolean(logsError) && !logsReady}
+        onRetryLog={() => void fetchLogsForDate(selectedDate)}
+        onToggle={() => setShowArchived(!showArchived)}
       />
+
+      <div className="mt-6">
+        {reportError ? <Banner message={reportError} onRetry={() => void fetchReport(chartStart, today)} /> : null}
+        {reportLoading && chartDays.length === 0 ? (
+          <div className="flex h-64 items-center justify-center rounded-2xl border border-border bg-card text-sm text-muted-foreground" aria-busy="true">
+            Loading the 14-day chart
+          </div>
+        ) : (
+          <DailyChart days={chartDays} />
+        )}
+      </div>
+    </AppShell>
+  )
+}
+
+function matchesQuery(task: Task, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return `${task.title} ${task.description} ${task.category} ${task.unit}`.toLowerCase().includes(needle)
+}
+
+function Banner({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="mb-4 flex flex-col gap-2 rounded-2xl border border-rose-600/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-800 sm:flex-row sm:items-center sm:justify-between dark:text-rose-100"
+    >
+      <p>{message}</p>
+      <button type="button" onClick={onRetry} className="inline-flex min-h-11 items-center font-medium underline">
+        Retry
+      </button>
     </div>
   )
 }

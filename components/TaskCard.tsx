@@ -1,526 +1,244 @@
 'use client'
 
-import {
-  useEffect,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { Archive, ArchiveRestore, Pencil } from 'lucide-react'
 
-import {
-  CheckCircle2,
-  Circle,
-  MinusCircle,
-  ChevronDown,
-  ChevronUp,
-  Trash2,
-} from 'lucide-react'
-
-import {
-  cn,
-  getStatusColor,
-  getCompletionPercent,
-} from '@/lib/utils'
-
+import LogEditor from '@/components/log-editor'
+import StatusButton from '@/components/status-button'
+import { apiMessage } from '@/lib/api-error'
+import type { DailyLog, Task } from '@/lib/types'
+import { completionPercent, displayStatus, halfTarget } from '@/lib/tasks'
+import { cn, getStatusColor, getStatusLabel } from '@/lib/utils'
+import { usePreferences } from '@/store/preferences'
 import { useTaskStore } from '@/store/taskStore'
 
-type TaskStatus =
-  | 'done'
-  | 'partial'
-  | 'not_done'
-
-type DisplayStatus =
-  | TaskStatus
-  | 'pending'
-
-type Task = {
-  id: string
-  title: string
-  description?: string
-  target: number
-  unit: string
-  category: string
-  color: string
-}
-
-type TaskLog = {
-  id?: string
-  taskId: string
-  completed?: number
-  status: TaskStatus
-  notes?: string
-}
+const fieldClass =
+  'w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40'
 
 type TaskCardProps = {
   task: Task
-  log?: TaskLog ;
+  log?: DailyLog
   date: string
+  logsKnown: boolean
+  logFailed?: boolean
+  onRetryLog?: () => void
 }
 
-const statusIcons: Record<
-  DisplayStatus,
-  ReactNode
-> = {
-  done: (
-    <CheckCircle2
-      size={14}
-      className="text-emerald-400"
-    />
-  ),
+export default function TaskCard({ task, log, date, logsKnown, logFailed = false, onRetryLog }: TaskCardProps) {
+  const upsertLog = useTaskStore((state) => state.upsertLog)
+  const deleteLog = useTaskStore((state) => state.deleteLog)
+  const updateTask = useTaskStore((state) => state.updateTask)
+  const fetchReport = useTaskStore((state) => state.fetchReport)
+  const reportRange = useTaskStore((state) => state.reportRange)
+  const setDialog = usePreferences((state) => state.setDialog)
+  const [open, setOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [title, setTitle] = useState(task.title)
+  const [busy, setBusy] = useState(false)
+  const status = logsKnown ? displayStatus(log, date) : 'pending'
+  const colors = getStatusColor(logsKnown ? status : 'pending')
+  const completed = log?.completed ?? 0
+  const percent = logsKnown ? completionPercent(completed, task.target) : 0
+  const half = halfTarget(task.target)
 
-  partial: (
-    <MinusCircle
-      size={14}
-      className="text-amber-400"
-    />
-  ),
-
-  not_done: (
-    <Circle
-      size={14}
-      className="text-rose-400"
-    />
-  ),
-
-  pending: (
-    <Circle
-      size={14}
-      className="text-zinc-600"
-    />
-  ),
-}
-
-export default function TaskCard({
-  task,
-  log,
-  date,
-}: TaskCardProps) {
-  // =========================
-  // STORE
-  // =========================
-
-  const {
-    upsertLog,
-    deleteTask,
-  } = useTaskStore()
-
-  // =========================
-  // STATE
-  // =========================
-
-  const [expanded, setExpanded] =
-    useState<boolean>(false)
-
-  const [inputVal, setInputVal] =
-    useState<string>(
-      log?.completed?.toString() ??
-        ''
-    )
-
-  const [notes, setNotes] =
-    useState<string>(
-      log?.notes ?? ''
-    )
-
-  const [saving, setSaving] =
-    useState<boolean>(false)
-
-  // =========================
-  // SYNC LOG
-  // =========================
-
-  useEffect(() => {
-    setInputVal(
-      log?.completed?.toString() ??
-        ''
-    )
-
-    setNotes(
-      log?.notes ?? ''
-    )
-  }, [
-    log?.completed,
-    log?.notes,
-  ])
-
-  // =========================
-  // VALUES
-  // =========================
-
-  const completed =
-    log?.completed ?? 0
-
-  const pct =
-    getCompletionPercent(
-      completed,
-      task.target
-    )
-
-  const status: DisplayStatus =
-    log?.status ?? 'pending'
-
-  const colors =
-    getStatusColor(status)
-
-  // =========================
-  // SAVE
-  // =========================
-
-  async function handleSave(): Promise<void> {
+  async function saveLog(completedValue: number, notes = log?.notes ?? '') {
+    setBusy(true)
     try {
-      setSaving(true)
-
-      const completedValue =
-        Number.parseFloat(
-          inputVal
-        ) || 0
-
-      await upsertLog(
-        task.id,
-        date,
-        {
-          completed:
-            completedValue,
-
-          notes:
-            notes.trim(),
-        }
-      )
-
-      setExpanded(false)
+      await upsertLog(task.id, date, { completed: completedValue, notes }, task.target)
+      if (reportRange) void fetchReport(reportRange.start, reportRange.end)
     } catch (error) {
-      console.error(error)
+      toast.error(apiMessage(error, 'Could not save progress'))
     } finally {
-      setSaving(false)
+      setBusy(false)
     }
   }
 
-  // =========================
-  // QUICK SET
-  // =========================
-
-  async function handleQuickSet(
-    value: number
-  ): Promise<void> {
+  async function saveTitle() {
+    const next = title.trim()
+    setRenaming(false)
+    if (!next || next === task.title) {
+      setTitle(task.title)
+      return
+    }
     try {
-      setInputVal(
-        value.toString()
-      )
-
-      await upsertLog(
-        task.id,
-        date,
-        {
-          completed: value,
-
-          notes:
-            notes.trim(),
-        }
-      )
+      await updateTask(task.id, { title: next })
+      toast.success('Task renamed')
     } catch (error) {
-      console.error(error)
+      setTitle(task.title)
+      toast.error(apiMessage(error, 'Could not rename that task'))
     }
   }
 
-  // =========================
-  // DELETE
-  // =========================
-
-  async function handleDelete(): Promise<void> {
+  async function toggleArchive() {
     try {
-      await deleteTask(
-        task.id
-      )
+      await updateTask(task.id, { isActive: !task.isActive })
+      toast.success(task.isActive ? 'Task archived' : 'Task restored')
     } catch (error) {
-      console.error(error)
+      toast.error(apiMessage(error, 'Could not update that task'))
     }
   }
 
   return (
-    <div
-      className={cn(
-        'rounded-xl border bg-[#111113] transition-all duration-200 hover:bg-[#141416]',
-
-        expanded
-          ? 'border-zinc-700'
-          : 'border-zinc-800/60 hover:border-zinc-700/60'
-      )}
+    <article
+      id={`task-${task.id}`}
+      className={cn('min-w-0 rounded-2xl border bg-card p-3 sm:p-4', colors.border)}
     >
-      {/* Header */}
-
-      <button
-        type="button"
-        onClick={() =>
-          setExpanded(
-            (
-              current
-            ) => !current
-          )
-        }
-        aria-expanded={
-          expanded
-        }
-        className="block w-full cursor-pointer p-3 text-left sm:p-4"
-      >
-        <div className="flex items-start gap-3">
-          {/* Category dot */}
-
-          <span
-            className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-            style={{
-              backgroundColor:
-                task.color,
-            }}
-          />
-
-          <div className="min-w-0 flex-1">
-            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="min-w-0 truncate font-syne text-sm font-medium text-zinc-100">
-                {task.title}
-              </h3>
-
-              <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
-                <div className="flex items-center gap-1.5">
-                  {
-                    statusIcons[
-                      status
-                    ]
+      <div className="flex items-start gap-3">
+        <span
+          className="mt-1.5 size-2.5 shrink-0 rounded-full"
+          style={{ backgroundColor: task.color }}
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            {renaming ? (
+              <input
+                value={title}
+                autoFocus
+                aria-label="Task name"
+                maxLength={120}
+                onChange={(event) => setTitle(event.target.value)}
+                onBlur={() => void saveTitle()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void saveTitle()
                   }
-
-                  <span
-                    className={cn(
-                      'font-mono text-xs font-medium',
-                      colors.text
-                    )}
-                  >
-                    <span className="font-semibold">
-                      {
-                        completed
-                      }
-                    </span>
-
-                    <span className="text-zinc-600">
-                      /
-                      {
-                        task.target
-                      }
-                    </span>
-
-                    <span className="ml-0.5 text-zinc-600">
-                      {
-                        task.unit
-                      }
-                    </span>
-                  </span>
-                </div>
-
-                {expanded ? (
-                  <ChevronUp
-                    size={13}
-                    className="text-zinc-600"
-                  />
-                ) : (
-                  <ChevronDown
-                    size={13}
-                    className="text-zinc-600"
-                  />
-                )}
-              </div>
+                  if (event.key === 'Escape') {
+                    setTitle(task.title)
+                    setRenaming(false)
+                  }
+                }}
+                className={fieldClass}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setOpen((value) => !value)}
+                aria-expanded={open}
+                className="min-h-11 min-w-0 flex-1 rounded-lg py-1 text-left"
+              >
+                <h3 className="truncate text-sm font-semibold">{task.title}</h3>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {task.category}
+                  {task.isActive ? '' : ' · Archived'}
+                  {logsKnown ? ` · ${getStatusLabel(status)}` : logFailed ? ' · Log unavailable' : ' · Loading log'}
+                </p>
+              </button>
+            )}
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                aria-label={`Rename ${task.title}`}
+                onClick={() => {
+                  setTitle(task.title)
+                  setRenaming(true)
+                }}
+                className="inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Pencil size={14} />
+              </button>
+              <button
+                type="button"
+                aria-label={task.isActive ? `Archive ${task.title}` : `Restore ${task.title}`}
+                onClick={() => void toggleArchive()}
+                className="inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                {task.isActive ? <Archive size={14} /> : <ArchiveRestore size={14} />}
+              </button>
             </div>
+          </div>
 
-            {/* Progress */}
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn('h-full rounded-full', {
+                'bg-emerald-500': status === 'done',
+                'bg-amber-500': status === 'partial',
+                'bg-rose-500': status === 'not_done',
+                'bg-foreground/20': status === 'pending' || !logsKnown,
+              })}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              {logsKnown ? (
+                <>
+                  <span className={cn('font-medium', colors.text)}>{completed}</span>
+                  <span>
+                    /{task.target} {task.unit}
+                  </span>
+                </>
+              ) : logFailed ? (
+                'Couldn’t load this log'
+              ) : (
+                'Loading log'
+              )}
+            </span>
+            <span>{logsKnown ? `${percent}%` : ''}</span>
+          </div>
 
-            <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-all duration-500',
+          {logFailed && !logsKnown ? (
+            <button
+              type="button"
+              onClick={onRetryLog}
+              className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-primary"
+            >
+              Retry
+            </button>
+          ) : null}
 
-                  {
-                    'bg-emerald-500':
-                      status ===
-                      'done',
-
-                    'bg-amber-500':
-                      status ===
-                      'partial',
-
-                    'bg-rose-500':
-                      status ===
-                      'not_done',
-
-                    'bg-zinc-700':
-                      status ===
-                      'pending',
-                  }
-                )}
-                style={{
-                  width: `${pct}%`,
+          {logsKnown && task.isActive ? (
+            <div className="mt-3 grid grid-cols-3 gap-1.5">
+              <StatusButton
+                label="Done"
+                pressed={status === 'done'}
+                disabled={busy}
+                onClick={() => void saveLog(task.target)}
+              />
+              <StatusButton
+                label="Half"
+                pressed={half != null && completed === half && status === 'partial'}
+                disabled={half == null || busy}
+                onClick={() => {
+                  if (half != null) void saveLog(half)
                 }}
               />
-            </div>
-
-            <div className="mt-1 flex items-center justify-between gap-3">
-              <span className="truncate font-body text-[11px] text-zinc-600">
-                {
-                  task.category
-                }
-              </span>
-
-              <span className="shrink-0 font-mono text-[11px] text-zinc-600">
-                {pct}%
-              </span>
-            </div>
-          </div>
-        </div>
-      </button>
-
-      {/* Expanded */}
-
-      {expanded && (
-        <div className="animate-slide-up border-t border-zinc-800/60 px-3 pb-3 pt-3 sm:px-4 sm:pb-4">
-          {task.description && (
-            <div className="mb-3 font-body text-xs leading-relaxed text-zinc-500">
-              {
-                task.description
-              }
-            </div>
-          )}
-
-          {/* Quick Buttons */}
-
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 font-body text-[11px] text-zinc-600">
-              Quick:
-            </span>
-
-            {[
-              0,
-              Math.floor(
-                task.target /
-                  2
-              ),
-              task.target,
-            ].map(
-              (
-                value
-              ) => (
-                <button
-                  key={
-                    value
-                  }
-                  type="button"
-                  onClick={() =>
-                    handleQuickSet(
-                      value
-                    )
-                  }
-                  className={cn(
-                    'rounded-md border px-2.5 py-1 font-mono text-[11px] transition-colors',
-
-                    Number.parseFloat(
-                      inputVal
-                    ) ===
-                      value
-                      ? 'border-amber-500/30 bg-amber-500/20 text-amber-300'
-                      : 'border-zinc-700/50 bg-zinc-800/50 text-zinc-400 hover:border-zinc-600'
-                  )}
-                >
-                  {value}
-                </button>
-              )
-            )}
-          </div>
-
-          {/* Input */}
-
-          <div className="mb-2 flex flex-col gap-2 sm:flex-row">
-            <div className="relative flex-1">
-              <input
-                type="number"
-                min={0}
-                max={
-                  task.target *
-                  2
-                }
-                value={
-                  inputVal
-                }
-                onChange={(
-                  event
-                ) =>
-                  setInputVal(
-                    event
-                      .target
-                      .value
-                  )
-                }
-                className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/60 px-3 py-2 pr-24 font-mono text-sm text-zinc-200 placeholder-zinc-600 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/20"
-                placeholder={`0-${task.target}`}
+              <StatusButton
+                label="Miss"
+                pressed={status === 'not_done'}
+                disabled={busy}
+                onClick={() => void saveLog(0)}
               />
-
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 truncate font-mono text-[11px] text-zinc-600">
-                /
-                {
-                  task.target
-                }{' '}
-                {
-                  task.unit
-                }
-              </span>
             </div>
+          ) : null}
 
-            <button
-              type="button"
-              onClick={
-                handleSave
+          {open ? (
+            <LogEditor
+              key={`${log?.id ?? 'new'}-${log?.completed ?? 0}-${log?.notes ?? ''}`}
+              task={task}
+              log={log}
+              disabled={!logsKnown}
+              onSave={(completedValue, notes) => saveLog(completedValue, notes)}
+              onClear={
+                log && !log.id.startsWith('temp-') && !busy
+                  ? async () => {
+                      try {
+                        await deleteLog(log.id)
+                        if (reportRange) void fetchReport(reportRange.start, reportRange.end)
+                      } catch (error) {
+                        toast.error(apiMessage(error, 'Could not clear this log'))
+                      }
+                    }
+                  : undefined
               }
-              disabled={
-                saving
-              }
-              className="w-full rounded-lg bg-amber-500 px-4 py-2 font-mono text-xs font-semibold text-black transition-colors hover:bg-amber-400 disabled:opacity-50 sm:w-auto"
-            >
-              {saving
-                ? 'Saving...'
-                : 'Save'}
-            </button>
-          </div>
-
-          {/* Notes */}
-
-          <textarea
-            value={notes}
-            onChange={(
-              event
-            ) =>
-              setNotes(
-                event
-                  .target
-                  .value
-              )
-            }
-            placeholder="Add a note (optional)..."
-            rows={2}
-            className="w-full resize-none rounded-lg border border-zinc-700/40 bg-zinc-800/40 px-3 py-2 font-body text-xs text-zinc-400 placeholder-zinc-600 focus:border-zinc-600 focus:outline-none"
-          />
-
-          {/* Delete */}
-
-          <div className="mt-3 flex justify-end">
-            <button
-              type="button"
-              onClick={
-                handleDelete
-              }
-              className="flex items-center gap-1 rounded-md px-2 py-1 font-body text-[11px] text-zinc-600 transition-colors hover:bg-rose-500/10 hover:text-rose-400"
-            >
-              <Trash2
-                size={11}
-              />
-
-              Delete task
-            </button>
-          </div>
+              onEdit={() => setDialog({ type: 'edit', taskId: task.id })}
+              onDelete={() => setDialog({ type: 'delete', taskId: task.id })}
+            />
+          ) : null}
         </div>
-      )}
-    </div>
+      </div>
+    </article>
   )
 }

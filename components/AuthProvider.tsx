@@ -1,72 +1,85 @@
-'use client';
+'use client'
 
-import {
-  useEffect,
-  useState,
-} from 'react';
+import { useEffect, useSyncExternalStore } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 
-import {
-  usePathname,
-  useRouter,
-} from 'next/navigation';
+import { AUTH_EVENT, clearSession, isExpired, readToken } from '@/lib/auth'
 
-const publicRoutes = [
-  '/login',
-  '/register',
-];
+const PUBLIC_ROUTES = ['/login', '/register']
 
-export default function AuthProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+type AuthStatus = 'unknown' | 'in' | 'out' | 'expired'
 
-  const router = useRouter();
+function subscribe(onStoreChange: () => void) {
+  window.addEventListener('storage', onStoreChange)
+  window.addEventListener(AUTH_EVENT, onStoreChange)
+  return () => {
+    window.removeEventListener('storage', onStoreChange)
+    window.removeEventListener(AUTH_EVENT, onStoreChange)
+  }
+}
 
-  const pathname = usePathname();
+function getSnapshot(): AuthStatus {
+  const token = readToken()
+  if (!token) return 'out'
+  if (isExpired(token)) return 'expired'
+  return 'in'
+}
 
-  const [loading, setLoading] =
-    useState(true);
+function BootScreen() {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-background px-6">
+      <div className="w-full max-w-sm space-y-3" aria-hidden="true">
+        <div className="mx-auto h-10 w-10 animate-pulse rounded-2xl bg-muted" />
+        <div className="h-4 animate-pulse rounded-full bg-muted" />
+        <div className="h-4 w-2/3 animate-pulse rounded-full bg-muted" />
+      </div>
+      <span className="sr-only">Loading TaskFlow</span>
+    </div>
+  )
+}
+
+export default function AuthProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const status = useSyncExternalStore(subscribe, getSnapshot, () => 'unknown' as AuthStatus)
+  const isPublic = PUBLIC_ROUTES.includes(pathname)
 
   useEffect(() => {
-
-    const token =
-      localStorage.getItem(
-        'taskflow_token'
-      );
-
-    const isPublicRoute =
-      publicRoutes.includes(
-        pathname
-      );
-
-    // NO TOKEN
-    if (!token) {
-
-      if (!isPublicRoute) {
-        router.replace('/login');
-      }
-
-      setLoading(false);
-      return;
+    if (status === 'expired') {
+      clearSession()
+      if (!isPublic) router.replace('/login?reason=expired')
+      return
     }
 
-    // TOKEN EXISTS
-    if (isPublicRoute) {
-      router.replace('/');
+    if (status === 'out' && !isPublic) {
+      router.replace('/login')
     }
 
-    setLoading(false);
+    if (status === 'in' && isPublic) {
+      router.replace('/')
+    }
+  }, [isPublic, router, status])
 
-  }, [pathname, router]);
+  useEffect(() => {
+    const watch = () => {
+      const token = readToken()
+      if (token && isExpired(token)) clearSession()
+    }
+    const interval = window.setInterval(watch, 30_000)
+    document.addEventListener('visibilitychange', watch)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', watch)
+    }
+  }, [])
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-black text-white">
-        Loading...
-      </div>
-    );
-  }
+  const waiting =
+    status === 'unknown' ||
+    status === 'expired' ||
+    (status === 'out' && !isPublic) ||
+    (status === 'in' && isPublic)
 
-  return children;
+  if (waiting) return <BootScreen />
+
+  return children
 }

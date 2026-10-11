@@ -73,10 +73,10 @@ export default function HistoryPage() {
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold">{format(month, 'MMMM yyyy')}</h2>
             <div className="flex items-center rounded-xl border border-border">
-              <button type="button" aria-label="Previous month" onClick={() => setMonth((value) => new Date(value.getFullYear(), value.getMonth() - 1, 1))} className="px-3 py-2">
+              <button type="button" aria-label="Previous month" onClick={() => setMonth((value) => new Date(value.getFullYear(), value.getMonth() - 1, 1))} className="inline-flex size-11 items-center justify-center">
                 <ChevronLeft size={16} />
               </button>
-              <button type="button" onClick={() => setMonth(startOfMonth(new Date()))} className="px-3 py-2 text-sm text-muted-foreground">
+              <button type="button" onClick={() => setMonth(startOfMonth(new Date()))} className="inline-flex min-h-11 items-center px-3 text-sm text-muted-foreground">
                 This month
               </button>
               <button
@@ -84,7 +84,7 @@ export default function HistoryPage() {
                 aria-label="Next month"
                 disabled={isSameMonth(month, new Date())}
                 onClick={() => setMonth((value) => new Date(value.getFullYear(), value.getMonth() + 1, 1))}
-                className="px-3 py-2 disabled:opacity-40"
+                className="inline-flex size-11 items-center justify-center disabled:opacity-40"
               >
                 <ChevronRight size={16} />
               </button>
@@ -151,7 +151,7 @@ export default function HistoryPage() {
                   : `${selectedSummary.done}/${selectedSummary.total} done · ${selectedSummary.score}%`}
               </p>
             </div>
-            <Link href="/" className="shrink-0 text-sm font-medium text-primary">
+            <Link href="/" className="inline-flex min-h-11 shrink-0 items-center text-sm font-medium text-primary">
               Open day
             </Link>
           </div>

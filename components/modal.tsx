@@ -48,7 +48,7 @@ export default function Modal({ open, title, description, onClose, children }: M
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             Close
           </button>

@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import { Command } from 'cmdk'
+import { DialogDescription, DialogTitle } from '@radix-ui/react-dialog'
 import { useTheme } from 'next-themes'
 
 import { AUTH_EVENT, clearSession, readToken, isExpired } from '@/lib/auth'
@@ -71,6 +72,8 @@ export default function CommandMenu() {
       label="Command menu"
       loop
     >
+      <DialogTitle className="sr-only">Command menu</DialogTitle>
+      <DialogDescription className="sr-only">Search pages and tasks</DialogDescription>
       <Command.Input
         placeholder={signedIn ? 'Search tasks or jump somewhere' : 'Jump somewhere'}
         className="h-12 border-b border-border px-4 text-sm"
@@ -80,17 +83,17 @@ export default function CommandMenu() {
         <Command.Group heading="Navigate" className="px-1 py-1 text-xs">
           {signedIn ? (
             <>
-              <Command.Item className="px-3 py-2 text-sm" onSelect={() => go('/')}>
+              <Command.Item className="flex min-h-11 items-center px-3 text-sm" onSelect={() => go('/')}>
                 Today
               </Command.Item>
-              <Command.Item className="px-3 py-2 text-sm" onSelect={() => go('/history')}>
+              <Command.Item className="flex min-h-11 items-center px-3 text-sm" onSelect={() => go('/history')}>
                 History
               </Command.Item>
-              <Command.Item className="px-3 py-2 text-sm" onSelect={() => go('/reports')}>
+              <Command.Item className="flex min-h-11 items-center px-3 text-sm" onSelect={() => go('/reports')}>
                 Reports
               </Command.Item>
               <Command.Item
-                className="px-3 py-2 text-sm"
+                className="flex min-h-11 items-center px-3 text-sm"
                 onSelect={() => {
                   setOpen(false)
                   setDialog({ type: 'create' })
@@ -102,16 +105,16 @@ export default function CommandMenu() {
             </>
           ) : (
             <>
-              <Command.Item className="px-3 py-2 text-sm" onSelect={() => go('/login')}>
+              <Command.Item className="flex min-h-11 items-center px-3 text-sm" onSelect={() => go('/login')}>
                 Sign in
               </Command.Item>
-              <Command.Item className="px-3 py-2 text-sm" onSelect={() => go('/register')}>
+              <Command.Item className="flex min-h-11 items-center px-3 text-sm" onSelect={() => go('/register')}>
                 Create account
               </Command.Item>
             </>
           )}
           <Command.Item
-            className="px-3 py-2 text-sm"
+            className="flex min-h-11 items-center px-3 text-sm"
             onSelect={() => {
               setTheme(resolvedTheme === 'light' ? 'dark' : 'light')
               setOpen(false)
@@ -120,7 +123,7 @@ export default function CommandMenu() {
             Toggle theme
           </Command.Item>
           {signedIn ? (
-            <Command.Item className="px-3 py-2 text-sm" onSelect={signOut}>
+            <Command.Item className="flex min-h-11 items-center px-3 text-sm" onSelect={signOut}>
               Sign out
             </Command.Item>
           ) : null}
@@ -134,7 +137,7 @@ export default function CommandMenu() {
                 <Command.Item
                   key={task.clientKey ?? task.id}
                   value={`${task.title} ${task.category}`}
-                  className="px-3 py-2 text-sm"
+                  className="flex min-h-11 items-center px-3 text-sm"
                   onSelect={() => {
                     setSelectedDate(todayKey())
                     setOpen(false)

@@ -2,8 +2,10 @@
 
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Archive, ArchiveRestore, Pencil, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Pencil } from 'lucide-react'
 
+import LogEditor from '@/components/log-editor'
+import StatusButton from '@/components/status-button'
 import { apiMessage } from '@/lib/api-error'
 import type { DailyLog, Task } from '@/lib/types'
 import { completionPercent, displayStatus, halfTarget } from '@/lib/tasks'
@@ -131,7 +133,7 @@ export default function TaskCard({ task, log, date, logsKnown }: TaskCardProps) 
                   setTitle(task.title)
                   setRenaming(true)
                 }}
-                className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <Pencil size={14} />
               </button>
@@ -139,7 +141,7 @@ export default function TaskCard({ task, log, date, logsKnown }: TaskCardProps) 
                 type="button"
                 aria-label={task.isActive ? `Archive ${task.title}` : `Restore ${task.title}`}
                 onClick={() => void toggleArchive()}
-                className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 {task.isActive ? <Archive size={14} /> : <ArchiveRestore size={14} />}
               </button>
@@ -224,149 +226,5 @@ export default function TaskCard({ task, log, date, logsKnown }: TaskCardProps) 
         </div>
       </div>
     </article>
-  )
-}
-
-function StatusButton({
-  label,
-  pressed,
-  disabled,
-  onClick,
-}: {
-  label: string
-  pressed: boolean
-  disabled?: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        'rounded-lg border px-2 py-1.5 text-xs font-medium',
-        pressed
-          ? 'border-ring bg-accent text-accent-foreground'
-          : 'border-border text-muted-foreground hover:text-foreground',
-        disabled && 'cursor-not-allowed opacity-40',
-      )}
-    >
-      {label}
-    </button>
-  )
-}
-
-function LogEditor({
-  task,
-  log,
-  disabled,
-  onSave,
-  onClear,
-  onEdit,
-  onDelete,
-}: {
-  task: Task
-  log?: DailyLog
-  disabled: boolean
-  onSave: (completed: number, notes: string) => Promise<void>
-  onClear?: () => Promise<void>
-  onEdit: () => void
-  onDelete: () => void
-}) {
-  const [amount, setAmount] = useState(log?.completed?.toString() ?? '')
-  const [notes, setNotes] = useState(log?.notes ?? '')
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  return (
-    <form
-      className="mt-3 space-y-2 border-t border-border pt-3"
-      onSubmit={(event) => {
-        event.preventDefault()
-        const value = Number(amount)
-        if (!amount.trim() || !Number.isFinite(value) || value < 0) {
-          setError('Enter a number that is 0 or more.')
-          return
-        }
-        setError(null)
-        setSaving(true)
-        void onSave(value, notes.trim()).finally(() => setSaving(false))
-      }}
-    >
-      {task.description ? (
-        <p className="text-xs leading-relaxed text-muted-foreground">{task.description}</p>
-      ) : null}
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <div className="min-w-0 flex-1">
-          <label htmlFor={`amount-${task.id}`} className="sr-only">
-            Completed {task.unit}
-          </label>
-          <input
-            id={`amount-${task.id}`}
-            type="number"
-            min={0}
-            step="any"
-            inputMode="decimal"
-            disabled={disabled || saving}
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            aria-invalid={Boolean(error)}
-            aria-describedby={error ? `amount-${task.id}-error` : undefined}
-            className={fieldClass}
-            placeholder={`0–${task.target} ${task.unit}`}
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={disabled || saving}
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-        >
-          {saving ? 'Saving…' : 'Save log'}
-        </button>
-      </div>
-      {error ? (
-        <p id={`amount-${task.id}-error`} className="text-xs text-rose-700 dark:text-rose-300">
-          {error}
-        </p>
-      ) : null}
-      <label htmlFor={`notes-${task.id}`} className="sr-only">
-        Notes
-      </label>
-      <textarea
-        id={`notes-${task.id}`}
-        value={notes}
-        disabled={disabled || saving}
-        maxLength={500}
-        rows={2}
-        onChange={(event) => setNotes(event.target.value)}
-        placeholder="Add a note"
-        className={cn(fieldClass, 'resize-none')}
-      />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-2">
-          <button type="button" onClick={onEdit} className="text-xs text-muted-foreground hover:text-foreground">
-            Edit details
-          </button>
-          {onClear ? (
-            <button
-              type="button"
-              onClick={() => void onClear()}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              Clear log
-            </button>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="inline-flex items-center gap-1 text-xs text-rose-700 hover:underline dark:text-rose-300"
-        >
-          <Trash2 size={12} />
-          Delete task
-        </button>
-      </div>
-    </form>
   )
 }

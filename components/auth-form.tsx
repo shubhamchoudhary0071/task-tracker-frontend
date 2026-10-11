@@ -121,7 +121,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
                     setErrors((current) => ({ ...current, password: undefined }))
                   }}
                   className={cn(
-                    'w-full rounded-xl border bg-background px-3 py-2.5 pr-11 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                    'min-h-11 w-full rounded-xl border bg-background px-3 py-2.5 pr-14 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
                     errors.password ? 'border-rose-600' : 'border-input focus-visible:border-ring',
                   )}
                 />
@@ -130,7 +130,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   aria-pressed={showPassword}
                   onClick={() => setShowPassword((value) => !value)}
-                  className="absolute right-2 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground"
+                  className="absolute right-1 top-1/2 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -144,7 +144,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
             <button
               type="submit"
               disabled={pending}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-60"
             >
               {pending ? <Loader2 size={16} className="animate-spin" /> : null}
               {pending ? 'Please wait…' : isRegister ? 'Create account' : 'Sign in'}
@@ -153,7 +153,10 @@ export default function AuthForm({ mode }: { mode: Mode }) {
 
           <p className="mt-5 text-center text-sm text-muted-foreground">
             {isRegister ? 'Already have an account?' : 'Need an account?'}{' '}
-            <Link href={isRegister ? '/login' : '/register'} className="font-medium text-primary">
+            <Link
+              href={isRegister ? '/login' : '/register'}
+              className="inline-flex min-h-11 items-center px-1 font-medium text-primary"
+            >
               {isRegister ? 'Sign in' : 'Create one'}
             </Link>
           </p>
@@ -197,7 +200,7 @@ function Field({
         aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
         onChange={(event) => onChange(event.target.value)}
         className={cn(
-          'w-full rounded-xl border bg-background px-3 py-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+          'min-h-11 w-full rounded-xl border bg-background px-3 py-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
           error ? 'border-rose-600' : 'border-input focus-visible:border-ring',
         )}
       />

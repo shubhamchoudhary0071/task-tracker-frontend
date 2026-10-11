@@ -64,7 +64,7 @@ function ThemeButton({ className }: { className?: string }) {
       title={label}
       onClick={() => setTheme(dark ? 'light' : 'dark')}
       className={cn(
-        'inline-flex size-9 items-center justify-center rounded-xl border border-border bg-card text-foreground hover:bg-accent',
+        'inline-flex size-11 items-center justify-center rounded-xl border border-border bg-card text-foreground hover:bg-accent',
         className,
       )}
     >
@@ -171,7 +171,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={logout}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-border px-3 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <LogOut size={14} />
             Sign out
@@ -198,7 +198,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={openCommandMenu}
                 aria-label="Open command menu"
-                className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-card"
+                className="inline-flex size-11 items-center justify-center rounded-xl border border-border bg-card"
               >
                 <Search size={16} />
               </button>
@@ -232,7 +232,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 href={href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px]',
+                  'flex min-h-11 flex-col items-center justify-center gap-1 rounded-xl px-2 py-1.5 text-[11px]',
                   active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground',
                 )}
               >

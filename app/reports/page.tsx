@@ -85,7 +85,7 @@ export default function ReportsPage() {
             {format(parseISO(start), 'MMM d')} – {format(parseISO(end), 'MMM d, yyyy')}
           </p>
         </div>
-        <div className="flex rounded-xl border border-border bg-card p-1" role="group" aria-label="Date range">
+        <div className="flex flex-wrap rounded-xl border border-border bg-card p-1" role="group" aria-label="Date range">
           {RANGES.map((value) => (
             <button
               key={value}
@@ -93,7 +93,7 @@ export default function ReportsPage() {
               aria-pressed={days === value}
               onClick={() => setDays(value)}
               className={cn(
-                'rounded-lg px-3 py-1.5 text-xs font-medium',
+                'inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-xs font-medium',
                 days === value ? 'bg-accent text-accent-foreground' : 'text-muted-foreground',
               )}
             >
@@ -106,7 +106,7 @@ export default function ReportsPage() {
       {reportError ? (
         <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-rose-600/30 bg-rose-500/10 px-4 py-3 text-sm">
           <p>{reportError}</p>
-          <button type="button" className="font-medium underline" onClick={() => void fetchReport(start, end)}>
+          <button type="button" className="inline-flex min-h-11 items-center font-medium underline" onClick={() => void fetchReport(start, end)}>
             Retry
           </button>
         </div>

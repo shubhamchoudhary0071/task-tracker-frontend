@@ -268,6 +268,7 @@ export function streaks(days: DailyStat[], today = todayKey()): { current: numbe
 }
 
 export function halfTarget(target: number): number | null {
+  // A target of 1 has no whole amount that is both above zero and below the target.
   if (target <= 1) return null
   const half = Math.floor(target / 2)
   if (half <= 0 || half >= target) return null

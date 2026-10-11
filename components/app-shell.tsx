@@ -148,7 +148,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 href={href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm',
+                  'flex min-h-11 items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm',
                   active
                     ? 'bg-accent font-medium text-accent-foreground'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',

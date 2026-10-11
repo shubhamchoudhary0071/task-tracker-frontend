@@ -37,7 +37,7 @@ export default function TrendChart({
     >
       <div className="h-56 w-full min-w-0">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+          <LineChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
             <CartesianGrid stroke={theme.grid} vertical={false} />
             <XAxis
               dataKey="label"
@@ -52,7 +52,7 @@ export default function TrendChart({
               axisLine={false}
               tickLine={false}
               tickFormatter={(value: number) => `${value}%`}
-              width={40}
+              width={48}
             />
             <Tooltip
               content={({ active, payload, label }) => {

@@ -26,7 +26,7 @@ export default function TaskPerformanceChart({ rows }: { rows: Row[] }) {
     <ChartFrame title="Task performance" subtitle="Average of days that have a log">
       <div className="w-full min-w-0" style={{ height: Math.max(180, rows.length * 36) }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+          <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 28, left: 0, bottom: 0 }}>
             <XAxis
               type="number"
               domain={[0, 100]}

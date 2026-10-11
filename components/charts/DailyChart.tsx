@@ -33,7 +33,7 @@ export default function DailyChart({ days }: { days: DailyStat[] }) {
       ) : (
         <div className="h-56 w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} barSize={10} margin={{ top: 8, right: 4, left: -18, bottom: 0 }}>
+            <BarChart data={data} barSize={10} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <XAxis
                 dataKey="label"
                 tick={{ fill: theme.tick, fontSize: 11 }}
@@ -46,7 +46,7 @@ export default function DailyChart({ days }: { days: DailyStat[] }) {
                 axisLine={false}
                 tickLine={false}
                 allowDecimals={false}
-                width={32}
+                width={36}
               />
               <Tooltip
                 cursor={{ fill: theme.cursor }}

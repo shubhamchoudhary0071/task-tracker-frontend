@@ -133,7 +133,9 @@ export const useTaskStore = create<TaskStore>()(
         set({ tasksLoading: true, tasksError: null })
         try {
           const { data } = await apiClient.get('/task')
-          const serverTasks = Array.isArray(data?.data) ? data.data.map(normalizeTask) : []
+          const serverTasks: Task[] = Array.isArray(data?.data)
+            ? data.data.map((item: unknown) => normalizeTask(item))
+            : []
           const previous = get().tasks
           const pending = previous.filter((task) => task.id.startsWith('temp-'))
           const keyed = serverTasks.map((task) => {

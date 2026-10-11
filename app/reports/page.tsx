@@ -93,7 +93,7 @@ export default function ReportsPage() {
               aria-pressed={days === value}
               onClick={() => setDays(value)}
               className={cn(
-                'inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-xs font-medium',
+                'inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg px-3 text-xs font-medium',
                 days === value ? 'bg-accent text-accent-foreground' : 'text-muted-foreground',
               )}
             >

@@ -115,7 +115,7 @@ export default function TaskCard({ task, log, date, logsKnown }: TaskCardProps) 
                 type="button"
                 onClick={() => setOpen((value) => !value)}
                 aria-expanded={open}
-                className="min-w-0 flex-1 rounded-lg text-left"
+                className="min-h-11 min-w-0 flex-1 rounded-lg py-1 text-left"
               >
                 <h3 className="truncate text-sm font-semibold">{task.title}</h3>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">

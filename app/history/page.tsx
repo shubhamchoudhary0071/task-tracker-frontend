@@ -69,7 +69,7 @@ export default function HistoryPage() {
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <section className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <section className="rounded-2xl border border-border bg-card p-2 sm:p-5">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold">{format(month, 'MMMM yyyy')}</h2>
             <div className="flex items-center rounded-xl border border-border">
@@ -91,7 +91,7 @@ export default function HistoryPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-0 sm:gap-1">
             {WEEKDAYS.map((day) => (
               <div key={day} className="py-1 text-center text-[11px] text-muted-foreground">
                 {day}

@@ -98,7 +98,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const todayLabel = format(new Date(), 'EEE, MMM d')
 
   return (
-    <div className="min-h-dvh bg-background text-foreground">
+    <div className="min-h-dvh bg-background text-foreground lg:flex">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-card focus:px-3 focus:py-2"
@@ -106,7 +106,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
 
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+      <aside className="hidden w-64 shrink-0 border-r border-sidebar-border bg-sidebar lg:block">
+        <div className="sticky top-0 flex h-dvh flex-col overflow-y-auto">
         <div className="border-b border-sidebar-border px-5 py-5">
           <div className="flex items-center gap-2.5">
             <span className="flex size-8 items-center justify-center rounded-xl bg-primary text-primary-foreground">
@@ -177,9 +178,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             Sign out
           </button>
         </div>
+        </div>
       </aside>
 
-      <div className="lg:pl-64">
+      <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 border-b border-border bg-background/90 px-4 py-3 backdrop-blur lg:hidden">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
